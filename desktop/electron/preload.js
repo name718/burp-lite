@@ -11,7 +11,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   writeRules: (rules) => ipcRenderer.invoke('rules:write', rules),
 
   // ── File Reading ───────────────────────────────────────────────────────────
-  readPayload: (id, type) => ipcRenderer.invoke('payload:read', id, type),
+  readPayload: async (id, type) => {
+    const res = await ipcRenderer.invoke('payload:read', id, type)
+    if (res.ok) return res.content
+    return ''
+  },
+  writePayload: async (id, type, content) => {
+    return await ipcRenderer.invoke('payload:write', id, type, content)
+  },
 
   // ── System Proxy ───────────────────────────────────────────────────────────
   setSystemProxy: (opts) => ipcRenderer.invoke('system:setProxy', opts),

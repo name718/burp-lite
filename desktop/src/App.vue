@@ -239,13 +239,21 @@
             🗑 Drop
           </button>
           <span class="interceptor-hint" v-if="interceptorOn">
-            {{ pendingCount }} 个请求挂起等待放行
+            {{ interceptedItems.length }} 个请求挂起等待放行
           </span>
         </div>
         <div class="interceptor-body">
-          <div class="interceptor-editor">
-            <div class="editor-label">✏️ 可编辑挂起的请求报文（手动改包后 Forward）</div>
-            <textarea v-model="interceptedRaw" class="raw-editor" spellcheck="false" />
+          <div class="interceptor-editor" v-if="activeInterceptItem">
+            <div class="editor-label">
+              <span class="badge-status">{{ activeInterceptItem.type.toUpperCase() }}</span>
+              #{{ activeInterceptItem.connId }} - 可编辑报文（修改后 Forward 放行）
+            </div>
+            <textarea v-model="activeInterceptItem.raw" class="raw-editor" spellcheck="false" />
+          </div>
+          <div class="interceptor-editor" v-else>
+            <div class="editor-label" style="text-align: center; margin-top: 40px; color: var(--text-muted);">
+              等待请求拦截...
+            </div>
           </div>
         </div>
       </section>
@@ -515,10 +523,13 @@ const editingRule     = ref(null)
 const isNewRule       = ref(false)
 
 // Interceptor
-const pendingCount    = ref(0)
-const interceptedRaw  = ref(
-  'POST /api/user/login HTTP/1.1\r\nHost: api.example.com\r\nContent-Type: application/json\r\n\r\n{"user":"admin","pass":"secret"}'
-)
+const interceptorOn   = ref(false)
+const interceptedItems= ref([])
+const activeInterceptItem = computed(() => interceptedItems.value[0] || null)
+
+watch(interceptorOn, async () => {
+  await fetch('http://127.0.0.1:8888/api/interceptor_toggle', { method: 'POST' })
+})
 
 // Repeater
 const repeaterTarget  = ref('http://127.0.0.1:8888')
@@ -861,6 +872,24 @@ function parseLogLine(rawLine) {
     })
     return
   }
+  
+  const interceptMatch = line.match(/^INTERCEPT\s+(REQ|RESP)\s+(\d+)/)
+  if (interceptMatch) {
+    const type = interceptMatch[1].toLowerCase()
+    const connId = parseInt(interceptMatch[2])
+    api.readPayload(connId, type).then(payload => {
+      interceptedItems.value.push({
+        id: uid(),
+        connId,
+        type,
+        raw: payload
+      })
+      if (activeTab.value !== 'interceptor') {
+        activeTab.value = 'interceptor'
+      }
+    }).catch(e => console.error(e))
+    return
+  }
 
   // Fallback: also try to pick up CHAOS log lines and mark last entry as injected
   if (/\[CHAOS\]/i.test(line) && historyList.value.length > 0) {
@@ -885,14 +914,26 @@ function scrollLog() {
 }
 
 // ── Interceptor ───────────────────────────────────────────────────────────────
-function forwardRequest() {
-  pendingCount.value = Math.max(0, pendingCount.value - 1)
-  showToast('请求已放行', 'success')
+async function forwardRequest() {
+  if (!activeInterceptItem.value) return
+  const item = activeInterceptItem.value
+  
+  // Write the modified raw text back to disk via IPC
+  await api.writePayload(item.connId, item.type, item.raw)
+  
+  // Tell proxy to resume
+  await fetch(`http://127.0.0.1:8888/api/resume?id=${item.connId}&type=${item.type}`, { method: 'POST' })
+  
+  interceptedItems.value.shift()
+  showToast('报文已修改并放行', 'success')
 }
 
-function dropRequest() {
-  pendingCount.value = Math.max(0, pendingCount.value - 1)
-  showToast('请求已丢弃', 'warn')
+async function dropRequest() {
+  if (!activeInterceptItem.value) return
+  // To drop, we just don't tell the proxy to resume, and maybe send a close signal?
+  // For now, we'll just remove it from UI, it will hang until timeout
+  interceptedItems.value.shift()
+  showToast('请求已丢弃（挂起超时断开）', 'warn')
 }
 
 // ── Repeater ──────────────────────────────────────────────────────────────────

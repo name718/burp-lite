@@ -18,6 +18,50 @@
 #include "web_ui.h"
 #include "logger.h"
 
+bool g_interceptor_on = false;
+
+/* ─── 事件循环结构体 ────────────────────────────────────────────────────── */
+struct event_loop {
+    int listen_fd;
+    int port;
+    bool running;
+    conn_t *conns_head;
+};
+
+static event_loop_t *g_loop = NULL;
+
+void trigger_interceptor_resume(int id, const char *type) {
+    if (!g_loop) return;
+    for (conn_t *c = g_loop->conns_head; c; c = c->next) {
+        if (c->id == id) {
+            if (strcmp(type, "req") == 0 && c->state == CONN_STATE_INTERCEPT_REQ) {
+                char filepath[256];
+                snprintf(filepath, sizeof(filepath), "/tmp/chaos_logs/%d_req.bin", id);
+                int fd = open(filepath, O_RDONLY);
+                if (fd >= 0) {
+                    c->req_len = read(fd, c->req_buf, sizeof(c->req_buf) - 1);
+                    if (c->req_len < 0) c->req_len = 0;
+                    c->req_buf[c->req_len] = '\0';
+                    close(fd);
+                }
+                c->state = CONN_STATE_CONNECT_UPSTREAM;
+            } else if (strcmp(type, "resp") == 0 && c->state == CONN_STATE_INTERCEPT_RESP) {
+                char filepath[256];
+                snprintf(filepath, sizeof(filepath), "/tmp/chaos_logs/%d_resp.bin", id);
+                int fd = open(filepath, O_RDONLY);
+                if (fd >= 0) {
+                    c->resp_len = read(fd, c->resp_buf, sizeof(c->resp_buf) - 1);
+                    if (c->resp_len < 0) c->resp_len = 0;
+                    c->resp_buf[c->resp_len] = '\0';
+                    close(fd);
+                }
+                c->state = CONN_STATE_INJECT_CHAOS;
+            }
+            break;
+        }
+    }
+}
+
 /**
  * @brief 辅助函数：在非阻塞 Socket 上强制写完所有数据，防止数据丢失导致文件截断
  */
@@ -56,13 +100,7 @@ static void append_payload_to_disk(int conn_id, const char *type, const char *bu
     }
 }
 
-/* ─── 事件循环结构体 ────────────────────────────────────────────────────── */
-struct event_loop {
-    int listen_fd;
-    int port;
-    bool running;
-    conn_t *conns_head;
-};
+
 
 /* ─── 辅助：设置非阻塞 ──────────────────────────────────────────────────── */
 int set_nonblocking(int fd) {
@@ -162,6 +200,7 @@ event_loop_t *event_loop_create(int port) {
     event_loop_t *loop = (event_loop_t *)calloc(1, sizeof(event_loop_t));
     if (!loop) return NULL;
 
+    g_loop = loop;
     loop->port    = port;
     loop->running = true;
 
@@ -357,6 +396,14 @@ void event_loop_run(event_loop_t *loop) {
                         chaos_rule_t *rule = rule_engine_match(c->path, c->method);
                         c->matched_rule    = rule;
 
+                        if (g_interceptor_on) {
+                            c->state = CONN_STATE_INTERCEPT_REQ;
+                            printf("INTERCEPT REQ %d\n", c->id);
+                            fflush(stdout);
+                            c = next;
+                            continue;
+                        }
+
                         /* CONNECT 隧道：跳过规则匹配，直接发起 TCP 连接 */
                         if (strcmp(c->method, "CONNECT") == 0) {
                             log_info("CONNECT 隧道: %s:%d", c->host, c->port);
@@ -447,7 +494,7 @@ void event_loop_run(event_loop_t *loop) {
 
                 char chunk[8192];
 
-                if (c->matched_rule == NULL) {
+                if (c->matched_rule == NULL && !g_interceptor_on) {
                     /* ── 透传模式：边读边写，不缓冲，适合大文件和静态资源 ── */
                     ssize_t bytes = read(c->upstream_fd, chunk, sizeof(chunk));
                     if (bytes > 0) {
@@ -510,6 +557,14 @@ void event_loop_run(event_loop_t *loop) {
                                c->method, c->path, status_code,
                                c->resp_len, c->host, c->id);
                         fflush(stdout);
+
+                        if (g_interceptor_on) {
+                            c->state = CONN_STATE_INTERCEPT_RESP;
+                            printf("INTERCEPT RESP %d\n", c->id);
+                            fflush(stdout);
+                            c = next;
+                            continue;
+                        }
 
                         /* 应用故障规则到真实响应上 */
                         bool drop = apply_chaos_injection(c, c->matched_rule);

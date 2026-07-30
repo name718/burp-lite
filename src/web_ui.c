@@ -12,6 +12,9 @@
 #include "rule_engine.h"
 #include "logger.h"
 
+extern bool g_interceptor_on;
+extern void trigger_interceptor_resume(int id, const char *type);
+
 /* 内嵌 HTML/CSS/JS 静态单页应用 (SPA) */
 static const char *WEB_UI_HTML = 
 "<!DOCTYPE html>\n"
@@ -436,6 +439,64 @@ bool handle_web_ui_request(conn_t *conn, int listen_port) {
                  "Content-Length: %zu\r\n"
                  "Connection: close\r\n\r\n"
                  "%s", strlen(json_buf), json_buf);
+        conn->resp_len = strlen(conn->resp_buf);
+        conn->state = CONN_STATE_WRITE_CLIENT;
+        return true;
+    }
+
+    /* 5. 切换拦截器开关 API (POST /api/interceptor_toggle) */
+    if (strcmp(conn->path, "/api/interceptor_toggle") == 0 && strcasecmp(conn->method, "POST") == 0) {
+        g_interceptor_on = !g_interceptor_on;
+        log_info("Interceptor toggled: %s", g_interceptor_on ? "ON" : "OFF");
+        
+        char json_buf[128];
+        snprintf(json_buf, sizeof(json_buf), "{\"status\":\"ok\",\"interceptorOn\":%s}", g_interceptor_on ? "true" : "false");
+        snprintf(conn->resp_buf, sizeof(conn->resp_buf),
+                 "HTTP/1.1 200 OK\r\n"
+                 "Content-Type: application/json\r\n"
+                 "Content-Length: %zu\r\n"
+                 "Connection: close\r\n\r\n"
+                 "%s", strlen(json_buf), json_buf);
+        conn->resp_len = strlen(conn->resp_buf);
+        conn->state = CONN_STATE_WRITE_CLIENT;
+        return true;
+    }
+
+    /* 6. 获取拦截器状态 API (GET /api/interceptor_status) */
+    if (strcmp(conn->path, "/api/interceptor_status") == 0 && strcasecmp(conn->method, "GET") == 0) {
+        char json_buf[128];
+        snprintf(json_buf, sizeof(json_buf), "{\"interceptorOn\":%s}", g_interceptor_on ? "true" : "false");
+        snprintf(conn->resp_buf, sizeof(conn->resp_buf),
+                 "HTTP/1.1 200 OK\r\n"
+                 "Content-Type: application/json\r\n"
+                 "Content-Length: %zu\r\n"
+                 "Connection: close\r\n\r\n"
+                 "%s", strlen(json_buf), json_buf);
+        conn->resp_len = strlen(conn->resp_buf);
+        conn->state = CONN_STATE_WRITE_CLIENT;
+        return true;
+    }
+
+    /* 7. 唤醒挂起的连接 API (POST /api/resume?id=123&type=req) */
+    if (strncmp(conn->path, "/api/resume?", 12) == 0 && strcasecmp(conn->method, "POST") == 0) {
+        int id = 0;
+        char type[16] = {0};
+        const char *id_str = strstr(conn->path, "id=");
+        const char *type_str = strstr(conn->path, "type=");
+        if (id_str) id = atoi(id_str + 3);
+        if (type_str) {
+            sscanf(type_str + 5, "%15[^&]", type);
+        }
+        
+        trigger_interceptor_resume(id, type);
+        
+        const char *resp = "{\"status\":\"ok\"}";
+        snprintf(conn->resp_buf, sizeof(conn->resp_buf),
+                 "HTTP/1.1 200 OK\r\n"
+                 "Content-Type: application/json\r\n"
+                 "Content-Length: %zu\r\n"
+                 "Connection: close\r\n\r\n"
+                 "%s", strlen(resp), resp);
         conn->resp_len = strlen(conn->resp_buf);
         conn->state = CONN_STATE_WRITE_CLIENT;
         return true;

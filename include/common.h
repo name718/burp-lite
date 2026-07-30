@@ -57,14 +57,16 @@ typedef enum {
     CONN_STATE_UNUSED = 0,         /* 状态 0：空闲闲置状态 */
     CONN_STATE_READ_CLIENT_REQ,    /* 状态 1：正在接收来自浏览器/客户端的请求数据 */
     CONN_STATE_PARSE_REQ,          /* 状态 2：请求读取完毕，正在解析 HTTP 报文与匹配规则 */
-    CONN_STATE_CONNECT_UPSTREAM,   /* 状态 3：非阻塞建立到目标真实服务器的 TCP 连接 */
-    CONN_STATE_WRITE_UPSTREAM,     /* 状态 4：将客户端请求转发给目标服务器 */
-    CONN_STATE_READ_UPSTREAM,      /* 状态 5：正在读取目标服务器返回的响应 */
-    CONN_STATE_INJECT_CHAOS,       /* 状态 6：读取完毕，正在执行故障注入 (篡改 Body/修改状态码) */
-    CONN_STATE_DELAY_WAIT,         /* 状态 7：延迟注入中，正在等待非阻塞定时器到期 */
-    CONN_STATE_WRITE_CLIENT,       /* 状态 8：正在将最终响应数据写回给浏览器/客户端 */
-    CONN_STATE_TUNNEL,             /* 状态 9：HTTPS CONNECT 隧道——双向透传原始字节 */
-    CONN_STATE_CLOSED              /* 状态 10：处理完成，准备关闭并回收 Socket */
+    CONN_STATE_INTERCEPT_REQ,      /* 状态 3：挂起：等待用户修改请求并放行 */
+    CONN_STATE_CONNECT_UPSTREAM,   /* 状态 4：非阻塞建立到目标真实服务器的 TCP 连接 */
+    CONN_STATE_WRITE_UPSTREAM,     /* 状态 5：将客户端请求转发给目标服务器 */
+    CONN_STATE_READ_UPSTREAM,      /* 状态 6：正在读取目标服务器返回的响应 */
+    CONN_STATE_INTERCEPT_RESP,     /* 状态 7：挂起：等待用户修改响应并放行 */
+    CONN_STATE_INJECT_CHAOS,       /* 状态 8：读取完毕，正在执行故障注入 */
+    CONN_STATE_DELAY_WAIT,         /* 状态 9：延迟注入中，正在等待非阻塞定时器到期 */
+    CONN_STATE_WRITE_CLIENT,       /* 状态 10：正在将最终响应数据写回给客户端 */
+    CONN_STATE_TUNNEL,             /* 状态 11：HTTPS CONNECT 隧道——双向透传原始字节 */
+    CONN_STATE_CLOSED              /* 状态 12：处理完成，准备关闭并回收 Socket */
 } conn_state_t;
 
 /**

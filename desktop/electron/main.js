@@ -199,6 +199,16 @@ ipcMain.handle('payload:read', (_event, id, type) => {
   }
 })
 
+ipcMain.handle('payload:write', (_event, id, type, content) => {
+  try {
+    const filePath = join('/tmp/chaos_logs', `${id}_${type}.bin`)
+    writeFileSync(filePath, content, 'utf-8')
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
 // ─── App Lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(createWindow)
 

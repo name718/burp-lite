@@ -10,7 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "vue": "^3.4.0"
+    "vue": "^3.4.0",
+    "vue-json-pretty": "^2.6.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",
@@ -43,11 +44,17 @@
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "build-resources/icon.icns"
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Development"
     }
   }
