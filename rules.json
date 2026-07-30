@@ -1,0 +1,38 @@
+[
+  {
+    "name": "模拟登录接口系统繁忙",
+    "enabled": true,
+    "match": {
+      "url": "/api/user/login",
+      "method": "POST"
+    },
+    "inject": {
+      "delay_ms": 2000,
+      "status_code": 503,
+      "body_modify": {
+        "find": "\"code\":0",
+        "replace": "\"code\":5"
+      }
+    }
+  },
+  {
+    "name": "模拟订单慢查询",
+    "enabled": true,
+    "match": {
+      "url": "/api/order/list"
+    },
+    "inject": {
+      "delay_ms": 3000
+    }
+  },
+  {
+    "name": "模拟连接瞬间中断",
+    "enabled": false,
+    "match": {
+      "url": "/api/payment/checkout"
+    },
+    "inject": {
+      "action": "close_immediately"
+    }
+  }
+]

@@ -1,0 +1,18 @@
+# Build artifacts
+build/
+bin/
+*.o
+*.d
+*.a
+*.so
+*.dylib
+
+# Editor / IDE files
+.DS_Store
+.vscode/
+.idea/
+.cache/
+
+# Core dumps & logs
+*.log
+core

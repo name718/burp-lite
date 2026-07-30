@@ -1,0 +1,37 @@
+[
+  {
+    "directory": "/Users/didi/Desktop/my-project/chaos-proxy",
+    "command": "gcc -Wall -Wextra -Werror -std=c99 -Iinclude -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -c src/main.c -o build/obj/main.c.o",
+    "file": "src/main.c"
+  },
+  {
+    "directory": "/Users/didi/Desktop/my-project/chaos-proxy",
+    "command": "gcc -Wall -Wextra -Werror -std=c99 -Iinclude -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -c src/event_loop.c -o build/obj/event_loop.c.o",
+    "file": "src/event_loop.c"
+  },
+  {
+    "directory": "/Users/didi/Desktop/my-project/chaos-proxy",
+    "command": "gcc -Wall -Wextra -Werror -std=c99 -Iinclude -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -c src/http_parser.c -o build/obj/http_parser.c.o",
+    "file": "src/http_parser.c"
+  },
+  {
+    "directory": "/Users/didi/Desktop/my-project/chaos-proxy",
+    "command": "gcc -Wall -Wextra -Werror -std=c99 -Iinclude -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -c src/rule_engine.c -o build/obj/rule_engine.c.o",
+    "file": "src/rule_engine.c"
+  },
+  {
+    "directory": "/Users/didi/Desktop/my-project/chaos-proxy",
+    "command": "gcc -Wall -Wextra -Werror -std=c99 -Iinclude -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -c src/chaos_engine.c -o build/obj/chaos_engine.c.o",
+    "file": "src/chaos_engine.c"
+  },
+  {
+    "directory": "/Users/didi/Desktop/my-project/chaos-proxy",
+    "command": "gcc -Wall -Wextra -Werror -std=c99 -Iinclude -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -c src/logger.c -o build/obj/logger.c.o",
+    "file": "src/logger.c"
+  },
+  {
+    "directory": "/Users/didi/Desktop/my-project/chaos-proxy",
+    "command": "gcc -Wall -Wextra -Werror -std=c99 -Iinclude -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -c src/cJSON.c -o build/obj/cJSON.c.o",
+    "file": "src/cJSON.c"
+  }
+]
