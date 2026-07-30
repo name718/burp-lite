@@ -8,6 +8,8 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   // ── Rules CRUD ─────────────────────────────────────────────────────────────
   readRules: () => electron.ipcRenderer.invoke("rules:read"),
   writeRules: (rules) => electron.ipcRenderer.invoke("rules:write", rules),
+  // ── File Reading ───────────────────────────────────────────────────────────
+  readPayload: (id, type) => electron.ipcRenderer.invoke("payload:read", id, type),
   // ── System Proxy ───────────────────────────────────────────────────────────
   setSystemProxy: (opts) => electron.ipcRenderer.invoke("system:setProxy", opts),
   clearSystemProxy: () => electron.ipcRenderer.invoke("system:clearProxy"),

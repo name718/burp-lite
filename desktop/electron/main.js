@@ -185,6 +185,20 @@ ipcMain.handle('system:clearProxy', () => {
   }
 })
 
+// ─── IPC: Read Payload ────────────────────────────────────────────────────────
+ipcMain.handle('payload:read', (_event, id, type) => {
+  try {
+    const filePath = join('/tmp/chaos_logs', `${id}_${type}.bin`)
+    if (!existsSync(filePath)) {
+      return { ok: false, msg: 'File not found' }
+    }
+    const content = readFileSync(filePath, 'utf-8')
+    return { ok: true, content }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
 // ─── App Lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(createWindow)
 

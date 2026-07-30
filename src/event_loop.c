@@ -36,6 +36,26 @@ static ssize_t blocking_write_all(int fd, const char *buf, size_t len) {
     return written;
 }
 
+static void save_payload_to_disk(int conn_id, const char *type, const char *buf, size_t len) {
+    char filepath[256];
+    snprintf(filepath, sizeof(filepath), "/tmp/chaos_logs/%d_%s.bin", conn_id, type);
+    int fd = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd >= 0) {
+        blocking_write_all(fd, buf, len);
+        close(fd);
+    }
+}
+
+static void append_payload_to_disk(int conn_id, const char *type, const char *buf, size_t len) {
+    char filepath[256];
+    snprintf(filepath, sizeof(filepath), "/tmp/chaos_logs/%d_%s.bin", conn_id, type);
+    int fd = open(filepath, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd >= 0) {
+        blocking_write_all(fd, buf, len);
+        close(fd);
+    }
+}
+
 /* ─── 事件循环结构体 ────────────────────────────────────────────────────── */
 struct event_loop {
     int listen_fd;
@@ -51,10 +71,13 @@ int set_nonblocking(int fd) {
     return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
+static int g_conn_id_counter = 1000;
+
 /* ─── 辅助：创建连接节点 ────────────────────────────────────────────────── */
 static conn_t *create_conn(int client_fd) {
     conn_t *c = (conn_t *)calloc(1, sizeof(conn_t));
     if (!c) return NULL;
+    c->id          = g_conn_id_counter++;
     c->client_fd   = client_fd;
     c->upstream_fd = -1;
     c->state       = CONN_STATE_READ_CLIENT_REQ;
@@ -327,6 +350,9 @@ void event_loop_run(event_loop_t *loop) {
                         /* 移除 Accept-Encoding 防止 gzip 乱码 */
                         strip_accept_encoding(c->req_buf, &c->req_len);
 
+                        /* 保存请求原文到磁盘 (Burp Lite Phase 1) */
+                        save_payload_to_disk(c->id, "req", c->req_buf, c->req_len);
+
                         /* 匹配故障规则（命中则暂存，待收到真实响应后注入） */
                         chaos_rule_t *rule = rule_engine_match(c->path, c->method);
                         c->matched_rule    = rule;
@@ -435,6 +461,8 @@ void event_loop_run(event_loop_t *loop) {
                             }
                         }
                         c->resp_len += (size_t)bytes;
+                        /* 追加写入响应到磁盘，确保抓包完整可见 */
+                        append_payload_to_disk(c->id, "resp", chunk, bytes);
                         /* 直接写给客户端，不进缓冲区 */
                         blocking_write_all(c->client_fd, chunk, bytes);
                     } else if (bytes == 0
@@ -442,9 +470,9 @@ void event_loop_run(event_loop_t *loop) {
                         /* upstream EOF，透传完成，记录日志并关闭 */
                         close(c->upstream_fd);
                         c->upstream_fd = -1;
-                        printf("PROXY %s %s %d %zu %s\n",
+                        printf("PROXY %s %s %d %zu %s %d\n",
                                c->method, c->path, c->resp_status,
-                               c->resp_len, c->host);
+                               c->resp_len, c->host, c->id);
                         fflush(stdout);
                         g_metrics.forwarded_requests++;
                         close_conn(loop, c);
@@ -474,10 +502,13 @@ void event_loop_run(event_loop_t *loop) {
                             if (*sp == ' ') status_code = atoi(sp + 1);
                         }
 
+                        /* 保存响应原文到磁盘 (Burp Lite Phase 1) */
+                        save_payload_to_disk(c->id, "resp", c->resp_buf, c->resp_len);
+
                         /* 输出结构化日志（供 Electron UI 解析） */
-                        printf("PROXY %s %s %d %zu %s\n",
+                        printf("PROXY %s %s %d %zu %s %d\n",
                                c->method, c->path, status_code,
-                               c->resp_len, c->host);
+                               c->resp_len, c->host, c->id);
                         fflush(stdout);
 
                         /* 应用故障规则到真实响应上 */
@@ -525,7 +556,7 @@ void event_loop_run(event_loop_t *loop) {
                     if (n > 0) {
                         blocking_write_all(c->upstream_fd, relay_buf, n);
                     } else if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
-                        printf("PROXY %s %s 200 0 %s\n", c->method, c->path, c->host);
+                        printf("PROXY %s %s 200 0 %s %d\n", c->method, c->path, c->host, c->id);
                         fflush(stdout);
                         close_conn(loop, c);
                         c = next;
@@ -541,7 +572,7 @@ void event_loop_run(event_loop_t *loop) {
                     if (n > 0) {
                         blocking_write_all(c->client_fd, relay_buf, n);
                     } else if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
-                        printf("PROXY %s %s 200 0 %s\n", c->method, c->path, c->host);
+                        printf("PROXY %s %s 200 0 %s %d\n", c->method, c->path, c->host, c->id);
                         fflush(stdout);
                         close_conn(loop, c);
                         c = next;

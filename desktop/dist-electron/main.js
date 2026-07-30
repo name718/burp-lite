@@ -153,6 +153,18 @@ electron.ipcMain.handle("system:clearProxy", () => {
     return { ok: false, msg: err.message };
   }
 });
+electron.ipcMain.handle("payload:read", (_event, id, type) => {
+  try {
+    const filePath = path.join("/tmp/chaos_logs", `${id}_${type}.bin`);
+    if (!fs.existsSync(filePath)) {
+      return { ok: false, msg: "File not found" };
+    }
+    const content = fs.readFileSync(filePath, "utf-8");
+    return { ok: true, content };
+  } catch (err) {
+    return { ok: false, msg: err.message };
+  }
+});
 electron.app.whenReady().then(createWindow);
 electron.app.on("window-all-closed", () => {
   if (proxyProcess) proxyProcess.kill("SIGTERM");

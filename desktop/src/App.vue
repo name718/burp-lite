@@ -96,88 +96,132 @@
     <div class="workspace">
 
       <!-- ════════════ A. HTTP History ════════════ -->
-      <section v-show="activeTab === 'history'" class="tab-pane history-pane">
-        <!-- 工具栏 -->
-        <div class="pane-toolbar">
-          <button class="toolbar-btn danger-btn" @click="clearHistory">🗑 Clear</button>
-          <label class="filter-label">
-            <span>Filter:</span>
-            <input v-model="historyFilter" placeholder="/api/..." class="filter-input" />
-          </label>
-          <label class="filter-label">
-            <input type="checkbox" v-model="filterChaosOnly" />
-            <span>Chaos only</span>
-          </label>
-        </div>
-
-        <!-- 请求列表 -->
-        <div class="req-table-wrap">
-          <table class="req-table">
-            <thead>
-              <tr>
-                <th style="width:44px">#</th>
-                <th style="width:64px">Method</th>
-                <th style="width:180px">Host</th>
-                <th>Path</th>
-                <th style="width:72px">Status</th>
-                <th style="width:90px">Latency</th>
-                <th style="width:72px">Size</th>
-                <th style="width:78px">Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in filteredHistory" :key="item.id"
-                  :class="{ selected: selectedId === item.id, 'chaos-row': item.injected }"
-                  @click="selectedId = item.id">
-                <td class="mono muted">{{ item.id }}</td>
-                <td><span class="badge-method" :class="'m-' + item.method.toLowerCase()">{{ item.method }}</span></td>
-                <td class="mono ellipsis" :title="item.host">{{ item.host }}</td>
-                <td class="mono ellipsis" :title="item.path">{{ item.path }}</td>
-                <td><span class="badge-status" :class="statusClass(item.status)">{{ item.status }}</span></td>
-                <td class="mono" :class="item.latency > 1000 ? 'text-warn' : ''">
-                  {{ item.latency > 0 ? item.latency + 'ms' : '-' }}
-                </td>
-                <td class="mono muted">{{ item.size }}</td>
-                <td class="mono muted">{{ item.time }}</td>
-              </tr>
-              <tr v-if="filteredHistory.length === 0">
-                <td colspan="8" class="empty-row">
-                  {{ proxyRunning ? '等待请求流入...' : '启动代理后开始捕获' }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <!-- Inspector 面板 -->
-        <div v-if="selectedItem" class="inspector">
-          <div class="inspector-col">
-            <div class="inspector-header">
-              <span>📥 Request</span>
-              <div class="inspector-tabs">
-                <button :class="{active: reqView==='raw'}" @click="reqView='raw'">Raw</button>
-                <button :class="{active: reqView==='headers'}" @click="reqView='headers'">Headers</button>
-              </div>
-              <button class="btn-sm btn-purple" @click="sendToRepeater(selectedItem)">
-                ⏩ Send to Repeater
-              </button>
-            </div>
-            <pre class="inspector-body">{{ reqView === 'raw' ? selectedItem.reqRaw : selectedItem.reqHeaders }}</pre>
+      <section v-show="activeTab === 'history'" class="tab-pane history-pane" :class="{'split-layout': !!selectedItem}">
+        <!-- 左侧/顶部：请求列表 -->
+        <div class="history-list-view">
+          <div class="pane-toolbar">
+            <button class="toolbar-btn danger-btn" @click="clearHistory">🗑 Clear</button>
+            <label class="filter-label">
+              <span>Filter:</span>
+              <input v-model="historyFilter" placeholder="/api/..." class="filter-input" />
+            </label>
+            <label class="filter-label">
+              <input type="checkbox" v-model="filterChaosOnly" />
+              <span>Chaos only</span>
+            </label>
           </div>
-          <div class="inspector-col">
-            <div class="inspector-header">
-              <span>📤 Response</span>
-              <div class="inspector-tabs">
-                <button :class="{active: respView==='raw'}" @click="respView='raw'">Raw</button>
-                <button :class="{active: respView==='headers'}" @click="respView='headers'">Headers</button>
-              </div>
-              <span v-if="selectedItem.injected" class="chaos-badge">💥 Chaos Applied</span>
-            </div>
-            <pre class="inspector-body">{{ respView === 'raw' ? selectedItem.respRaw : selectedItem.respHeaders }}</pre>
+
+          <div class="req-table-wrap">
+            <table class="req-table">
+              <thead>
+                <tr>
+                  <th style="width:44px" v-if="!selectedItem">#</th>
+                  <th :style="{ width: selectedItem ? '100%' : 'auto' }">名称 (Name)</th>
+                  <th style="width:72px" v-if="!selectedItem">Status</th>
+                  <th style="width:90px" v-if="!selectedItem">Latency</th>
+                  <th style="width:72px" v-if="!selectedItem">Size</th>
+                  <th style="width:78px" v-if="!selectedItem">Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in filteredHistory" :key="item.id"
+                    :class="{ selected: selectedId === item.id, 'chaos-row': item.injected, 'is-error': item.status >= 400 }"
+                    @click="selectedId = item.id">
+                  <td class="mono muted" v-if="!selectedItem">{{ item.id }}</td>
+                  <td class="mono name-cell">
+                    <span class="badge-method" :class="'m-' + item.method.toLowerCase()">{{ item.method }}</span>
+                    <span class="path-text" :title="item.path">{{ getPathName(item.path) }}</span>
+                  </td>
+                  <td v-if="!selectedItem"><span class="badge-status" :class="statusClass(item.status)">{{ item.status }}</span></td>
+                  <td class="mono" :class="item.latency > 1000 ? 'text-warn' : ''" v-if="!selectedItem">
+                    {{ item.latency > 0 ? item.latency + 'ms' : '-' }}
+                  </td>
+                  <td class="mono muted" v-if="!selectedItem">{{ item.size }}</td>
+                  <td class="mono muted" v-if="!selectedItem">{{ item.time }}</td>
+                </tr>
+                <tr v-if="filteredHistory.length === 0">
+                  <td :colspan="selectedItem ? 1 : 6" class="empty-row">
+                    {{ proxyRunning ? '等待请求流入...' : '启动代理后开始捕获' }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
-        <div v-else class="inspector inspector-empty">
-          <span>点击上方请求行查看报文详情</span>
+
+        <!-- 右侧：Chrome DevTools 风格的详情面板 -->
+        <div class="history-detail-view" v-if="selectedItem">
+          <div class="devtools-header">
+            <button class="close-btn" @click="selectedId = null">✕</button>
+            <div class="devtools-tabs">
+              <button :class="{active: devtoolsTab==='headers'}" @click="devtoolsTab='headers'">标头 (Headers)</button>
+              <button :class="{active: devtoolsTab==='payload'}" @click="devtoolsTab='payload'">载荷 (Payload)</button>
+              <button :class="{active: devtoolsTab==='response'}" @click="devtoolsTab='response'">响应 (Response)</button>
+              <button :class="{active: devtoolsTab==='raw'}" @click="devtoolsTab='raw'">原始数据 (Raw)</button>
+            </div>
+            <button class="btn-sm btn-purple repeater-btn" @click="sendToRepeater(selectedItem)">⏩ Repeater</button>
+          </div>
+
+          <div class="devtools-content">
+            <!-- Headers Tab -->
+            <div v-if="devtoolsTab==='headers'" class="dt-section">
+              <div class="dt-group">
+                <h3>常规 (General)</h3>
+                <div class="dt-row"><span class="dt-key">请求网址:</span><span class="dt-val">http://{{ selectedItem.host }}{{ selectedItem.path }}</span></div>
+                <div class="dt-row"><span class="dt-key">请求方法:</span><span class="dt-val">{{ selectedItem.method }}</span></div>
+                <div class="dt-row"><span class="dt-key">状态代码:</span><span class="dt-val" :class="statusClass(selectedItem.status)">{{ selectedItem.status }}</span></div>
+              </div>
+              
+              <div class="dt-group">
+                <h3>响应标头 (Response Headers)</h3>
+                <pre class="dt-pre">{{ selectedItem.respHeaders || 'Loading...' }}</pre>
+              </div>
+
+              <div class="dt-group">
+                <h3>请求标头 (Request Headers)</h3>
+                <pre class="dt-pre">{{ selectedItem.reqHeaders || 'Loading...' }}</pre>
+              </div>
+            </div>
+
+            <!-- Payload Tab -->
+            <div v-if="devtoolsTab==='payload'" class="dt-section">
+              <div class="dt-group" v-if="Object.keys(parsedQuery).length > 0">
+                <h3>查询字符串参数 (Query String Parameters)</h3>
+                <table class="dt-table">
+                  <tr v-for="(val, key) in parsedQuery" :key="key">
+                    <td class="dt-td-key">{{ key }}</td>
+                    <td class="dt-td-val">{{ val }}</td>
+                  </tr>
+                </table>
+              </div>
+              <div v-else class="dt-empty">没有查询字符串参数</div>
+              
+              <div class="dt-group" v-if="selectedItem.reqRaw">
+                <h3>请求正文 (Request Body)</h3>
+                <pre class="dt-pre">{{ selectedItem.reqRaw }}</pre>
+              </div>
+            </div>
+
+            <!-- Response Tab -->
+            <div v-if="devtoolsTab==='response'" class="dt-section">
+              <div v-if="parsedResponseJson" class="json-viewer-wrap">
+                <vue-json-pretty :data="parsedResponseJson" :deep="3" showIcon showLineNumber :collapsedOnClickBrackets="true" />
+              </div>
+              <pre v-else class="dt-pre dt-response">{{ selectedItem.respRaw || 'Loading...' }}</pre>
+            </div>
+
+            <!-- Raw Tab -->
+            <div v-if="devtoolsTab==='raw'" class="dt-section">
+              <div class="dt-group">
+                <h3>Full Request</h3>
+                <pre class="dt-pre">{{ selectedItem.reqHeaders }}\n\n{{ selectedItem.reqRaw }}</pre>
+              </div>
+              <div class="dt-group">
+                <h3>Full Response</h3>
+                <pre class="dt-pre">{{ selectedItem.respHeaders }}\n\n{{ selectedItem.respRaw }}</pre>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -427,6 +471,8 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import VueJsonPretty from 'vue-json-pretty'
+import 'vue-json-pretty/lib/styles.css'
 
 // ── Electron API bridge ───────────────────────────────────────────────────────
 const isElectron = typeof window !== 'undefined' && !!window.electronAPI
@@ -515,9 +561,92 @@ const filteredHistory = computed(() => {
   return list.slice().reverse()
 })
 
+const devtoolsTab = ref('headers')
+
+function decodeChunkedBody(body) {
+  if (!/^[0-9a-fA-F]+\r\n/.test(body)) return body
+  let decoded = ''
+  let pos = 0
+  while (pos < body.length) {
+    const nextCrLf = body.indexOf('\r\n', pos)
+    if (nextCrLf === -1) break
+    const chunkHex = body.slice(pos, nextCrLf)
+    const chunkSize = parseInt(chunkHex, 16)
+    if (isNaN(chunkSize)) return body // fallback if not really chunked
+    if (chunkSize === 0) break
+    pos = nextCrLf + 2
+    decoded += body.slice(pos, pos + chunkSize)
+    pos += chunkSize + 2
+  }
+  return decoded
+}
+
+const parsedResponseJson = computed(() => {
+  if (!selectedItem.value || !selectedItem.value.respRaw) return null
+  try {
+    let raw = selectedItem.value.respRaw
+    if (selectedItem.value.respHeaders?.toLowerCase().includes('transfer-encoding: chunked')) {
+      raw = decodeChunkedBody(raw)
+    }
+    return JSON.parse(raw)
+  } catch (e) {
+    return null
+  }
+})
+
+const parsedQuery = computed(() => {
+  if (!selectedItem.value || !selectedItem.value.path) return {}
+  const qmark = selectedItem.value.path.indexOf('?')
+  if (qmark === -1) return {}
+  const qs = selectedItem.value.path.substring(qmark + 1)
+  const obj = {}
+  new URLSearchParams(qs).forEach((val, key) => {
+    obj[key] = val
+  })
+  return obj
+})
+
+function getPathName(path) {
+  if (!path) return '/'
+  const qmark = path.indexOf('?')
+  let p = qmark === -1 ? path : path.substring(0, qmark)
+  const lastSlash = p.lastIndexOf('/')
+  return lastSlash !== -1 && lastSlash < p.length - 1 ? p.substring(lastSlash + 1) : p
+}
+
 const selectedItem = computed(() =>
   historyList.value.find(h => h.id === selectedId.value) || null
 )
+
+watch(selectedId, async (newVal) => {
+  if (!newVal) return
+  const item = historyList.value.find(h => h.id === newVal)
+  if (!item || !item.connId) return
+
+  // Fetch full payloads from disk when selected
+  if (api.readPayload) {
+    try {
+      const req = await api.readPayload(item.connId, 'req')
+      if (req.ok && req.content) {
+        const parts = req.content.split('\r\n\r\n')
+        item.reqHeaders = parts[0]
+        item.reqRaw = parts.length > 1 ? parts.slice(1).join('\r\n\r\n') : ''
+      } else {
+        item.reqRaw = 'Failed to load: ' + (req.msg || 'Unknown error')
+      }
+      const resp = await api.readPayload(item.connId, 'resp')
+      if (resp.ok && resp.content) {
+        const parts = resp.content.split('\r\n\r\n')
+        item.respHeaders = parts[0]
+        item.respRaw = parts.length > 1 ? parts.slice(1).join('\r\n\r\n') : ''
+      } else {
+        item.respRaw = 'Failed to load: ' + (resp.msg || 'Unknown error')
+      }
+    } catch (e) {
+      console.error('Failed to read payload', e)
+    }
+  }
+})
 
 const enabledCount = computed(() => rules.value.filter(r => r.enabled).length)
 
@@ -688,7 +817,8 @@ function clearHistory() {
 
 function pushHistoryEntry(entry) {
   historySeq++
-  historyList.value.push({ id: historySeq, time: nowTime(), ...entry })
+  const id = entry.id || historySeq
+  historyList.value.push({ time: nowTime(), ...entry, id })
   if (historyList.value.length > 1000) historyList.value.shift()
 }
 
@@ -710,11 +840,13 @@ function parseLogLine(rawLine) {
   logLines.value.push(line)
   scrollLog()
 
-  // Structured line: "PROXY METHOD path statusCode sizeBytes host"
-  const m = line.match(/^PROXY\s+(\w+)\s+(\S+)\s+(\d+)\s+(\d+)\s*(\S*)/)
+  // Structured line: "PROXY METHOD path statusCode sizeBytes host connId"
+  const m = line.match(/^PROXY\s+(\w+)\s+(\S+)\s+(\d+)\s+(\d+)\s*(\S*)\s*(\d*)/)
   if (m) {
     const isChaos = /chaos|inject|delay|drop/i.test(line)
+    const connId = m[6] ? parseInt(m[6]) : null
     pushHistoryEntry({
+      connId:      connId,
       method:      m[1].toUpperCase(),
       host:        m[5] || 'localhost',
       path:        m[2],
@@ -1120,6 +1252,7 @@ onUnmounted(() => {
 
 .req-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 12px;
 }
@@ -1138,8 +1271,10 @@ onUnmounted(() => {
 .req-table td {
   padding: 5px 10px;
   border-bottom: 1px solid rgba(255,255,255,0.035);
-  max-width: 0;
   vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .req-table tbody tr {
@@ -1157,19 +1292,22 @@ onUnmounted(() => {
 
 .badge-method {
   display: inline-block;
-  padding: 1px 5px;
-  border-radius: 3px;
+  padding: 2px 6px;
+  border-radius: 4px;
   font-size: 10px;
   font-weight: 700;
   font-family: var(--font-mono);
   letter-spacing: 0.05em;
+  flex-shrink: 0;
 }
-.m-get    { background: var(--cyan-dim);   color: var(--cyan);   }
-.m-post   { background: var(--orange-dim); color: var(--orange); }
-.m-put    { background: var(--yellow-dim); color: var(--yellow); }
-.m-delete { background: var(--red-dim);    color: var(--red);    }
-.m-patch  { background: var(--purple-dim); color: var(--purple); }
-.m-all    { background: var(--bg-3); color: var(--text-muted); }
+.m-get     { background: var(--cyan-dim);   color: var(--cyan);   }
+.m-post    { background: var(--orange-dim); color: var(--orange); }
+.m-put     { background: var(--yellow-dim); color: var(--yellow); }
+.m-delete  { background: var(--red-dim);    color: var(--red);    }
+.m-patch   { background: var(--purple-dim); color: var(--purple); }
+.m-connect { background: var(--purple-dim); color: var(--purple); }
+.m-options { background: var(--bg-3);       color: var(--text-muted); }
+.m-all     { background: var(--bg-3);       color: var(--text-muted); }
 
 .badge-status {
   display: inline-block;
@@ -1189,6 +1327,202 @@ onUnmounted(() => {
   padding: 32px !important;
   color: var(--text-muted);
   font-style: italic;
+}
+
+/* ── History Pane (Chrome DevTools Style) ─────────────────────────────────── */
+.history-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.history-pane.split-layout {
+  flex-direction: row;
+}
+
+/* Left: List View */
+.history-list-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 300px;
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+}
+
+.req-table-wrap {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.name-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.path-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.is-error {
+  color: var(--danger) !important;
+}
+
+/* Right: DevTools Inspector */
+.history-detail-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 400px;
+  background: var(--bg-card);
+}
+
+.devtools-header {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-dark);
+  padding: 0 8px;
+}
+
+.close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 8px;
+  font-size: 16px;
+  margin-right: 8px;
+}
+.close-btn:hover { color: var(--text); }
+
+.devtools-tabs {
+  display: flex;
+  flex: 1;
+  gap: 2px;
+}
+.devtools-tabs button {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 10px 16px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+.devtools-tabs button:hover {
+  color: var(--text);
+  background: rgba(255,255,255,0.05);
+}
+.devtools-tabs button.active {
+  color: var(--primary);
+  border-bottom: 2px solid var(--primary);
+}
+
+.devtools-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.dt-section {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.dt-group h3 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+
+.dt-row {
+  display: flex;
+  font-size: 13px;
+  line-height: 1.6;
+  font-family: var(--font-mono);
+}
+.dt-key {
+  font-weight: bold;
+  color: var(--text-muted);
+  width: 120px;
+  flex-shrink: 0;
+}
+.dt-val {
+  color: var(--text);
+  word-break: break-all;
+}
+
+.dt-pre {
+  background: var(--bg-dark);
+  padding: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
+.dt-response {
+  color: var(--text);
+}
+
+.dt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-family: var(--font-mono);
+}
+.dt-td-key {
+  width: 30%;
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+  color: var(--primary);
+}
+.dt-td-val {
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  word-break: break-all;
+}
+.dt-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.repeater-btn {
+  margin-left: auto;
+}
+
+.json-viewer-wrap {
+  background: var(--bg-dark);
+  padding: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  overflow-x: auto;
+}
+.json-viewer-wrap .vjs-tree__node {
+  color: var(--text) !important;
+}
+.json-viewer-wrap .vjs-value__string {
+  color: var(--green) !important;
+}
+.json-viewer-wrap .vjs-value__number {
+  color: var(--orange) !important;
+}
+.json-viewer-wrap .vjs-value__boolean {
+  color: var(--cyan) !important;
 }
 
 /* ─── Inspector ───────────────────────────────────────────────────────────── */

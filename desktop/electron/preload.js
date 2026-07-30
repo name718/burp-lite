@@ -10,6 +10,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readRules: () => ipcRenderer.invoke('rules:read'),
   writeRules: (rules) => ipcRenderer.invoke('rules:write', rules),
 
+  // ── File Reading ───────────────────────────────────────────────────────────
+  readPayload: (id, type) => ipcRenderer.invoke('payload:read', id, type),
+
   // ── System Proxy ───────────────────────────────────────────────────────────
   setSystemProxy: (opts) => ipcRenderer.invoke('system:setProxy', opts),
   clearSystemProxy: () => ipcRenderer.invoke('system:clearProxy'),
