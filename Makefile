@@ -50,6 +50,11 @@ clean:
 test: all
 	@./test.sh
 
+# Run desktop app
+desktop:
+	@echo "启动 Chaos-Proxy Desktop (Burp Suite Edition) 桌面前端工程..."
+	@cd desktop && npm install && npm run dev
+
 # Auto-include generated dependency files (.d)
 -include $(DEPS)
 
@@ -58,4 +63,5 @@ help:
 	@echo "  make         - Build production release binary"
 	@echo "  make debug   - Build debug binary with symbols and extra logs"
 	@echo "  make test    - Build and run automated functionality tests"
+	@echo "  make desktop - Run Vue 3 Desktop app (Burp Suite style)"
 	@echo "  make clean   - Remove all compiled artifacts"
