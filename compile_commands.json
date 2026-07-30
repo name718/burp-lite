@@ -33,5 +33,10 @@
     "directory": "/Users/didi/Desktop/my-project/chaos-proxy",
     "command": "gcc -Wall -Wextra -Werror -std=c99 -Iinclude -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -c src/cJSON.c -o build/obj/cJSON.c.o",
     "file": "src/cJSON.c"
+  },
+  {
+    "directory": "/Users/didi/Desktop/my-project/chaos-proxy",
+    "command": "gcc -Wall -Wextra -Werror -std=c99 -Iinclude -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -c src/web_ui.c -o build/obj/web_ui.c.o",
+    "file": "src/web_ui.c"
   }
 ]

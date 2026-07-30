@@ -12,6 +12,7 @@
 #include "http_parser.h"
 #include "rule_engine.h"
 #include "chaos_engine.h"
+#include "web_ui.h"
 #include "logger.h"
 
 /**
@@ -231,6 +232,13 @@ void event_loop_run(event_loop_t *loop) {
                     /* 尝试解析 HTTP 请求报文 */
                     if (parse_http_request(c) == 0) {
                         g_metrics.total_requests++;
+
+                        /* 优先检查并处理 Web UI 可视化界面与 REST API */
+                        if (handle_web_ui_request(c)) {
+                            c = next;
+                            continue;
+                        }
+
                         strip_accept_encoding(c->req_buf, &c->req_len); // 剥离 Accept-Encoding 防止 gzip
 
                         /* 根据 URL 和 Method 匹配 rules.json 中的故障注入规则 */

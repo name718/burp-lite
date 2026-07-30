@@ -91,7 +91,8 @@ int main(int argc, char *argv[]) {
     sigaction(SIGINT, &sa, NULL);  // 捕获 Ctrl+C
     sigaction(SIGTERM, &sa, NULL); // 捕获 kill 命令
 
-    log_info("正在启动 Chaos-Proxy 混沌代理服务...");
+    log_info("启动 Chaos-Proxy 代理服务...");
+    log_success("🌐 Web UI 控制台可视化界面已在 http://127.0.0.1:%d/ui 开启", port);
 
     /* 步骤 1: 初始化故障注入规则引擎 (读取并解析 rules.json) */
     if (rule_engine_init(config_path) != 0) {
