@@ -12,7 +12,7 @@ BUILD_DIR= build
 OBJ_DIR  = $(BUILD_DIR)/obj
 BIN_DIR  = $(BUILD_DIR)/bin
 
-TARGET   = $(BIN_DIR)/chaos-proxy
+TARGET   = $(BIN_DIR)/burp-lite
 
 # Automatically collect source and header files
 SRCS     = $(wildcard $(SRC_DIR)/*.c)

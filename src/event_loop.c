@@ -557,13 +557,15 @@ void event_loop_run(event_loop_t *loop) {
                         fcntl(c->upstream_fd, F_SETFL, flags & ~O_NONBLOCK);
 
                         if (SSL_accept(c->client_ssl) <= 0) {
-                            log_error("TLS Client 握手失败");
+                            int err = SSL_get_error(c->client_ssl, -1);
+                            log_error("TLS Client 握手失败, err=%d", err);
                             close_conn(loop, c);
                             c = next;
                             continue;
                         }
                         if (SSL_connect(c->upstream_ssl) <= 0) {
-                            log_error("TLS Upstream 握手失败");
+                            int err = SSL_get_error(c->upstream_ssl, -1);
+                            log_error("TLS Upstream 握手失败, err=%d", err);
                             close_conn(loop, c);
                             c = next;
                             continue;

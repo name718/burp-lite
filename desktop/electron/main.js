@@ -18,9 +18,9 @@ const isDev = process.env.VITE_DEV_SERVER_URL !== undefined
 
 function getBinaryPath() {
   if (isDev) {
-    return join(__dirname, '../../build/bin/chaos-proxy')
+    return join(__dirname, '../../build/bin/burp-lite')
   }
-  return join(process.resourcesPath, 'bin', 'chaos-proxy')
+  return join(process.resourcesPath, 'bin', 'burp-lite')
 }
 
 function getRulesPath() {
@@ -217,8 +217,20 @@ ipcMain.handle('request:sendRaw', (_event, port, rawRequest) => {
     let responseData = Buffer.alloc(0)
     let startTime = Date.now()
 
+    let finalRequest = rawRequest;
+    const parts = rawRequest.split('\r\n\r\n');
+    if (parts.length >= 2) {
+      const headStr = parts[0];
+      const bodyStr = parts.slice(1).join('\r\n\r\n');
+      const actualLen = Buffer.byteLength(bodyStr, 'utf8');
+      if (/Content-Length:\s*\d+/i.test(headStr)) {
+        const newHead = headStr.replace(/Content-Length:\s*\d+/i, `Content-Length: ${actualLen}`);
+        finalRequest = newHead + '\r\n\r\n' + bodyStr;
+      }
+    }
+
     client.connect(port, '127.0.0.1', () => {
-      client.write(rawRequest)
+      client.write(finalRequest)
     })
 
     client.on('data', (data) => {

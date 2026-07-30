@@ -9,7 +9,7 @@
         <button class="wc wc-max"     @click="api.maximize()" title="最大化" />
       </div>
       <div class="titlebar-title">
-        <span class="tb-logo">⚡</span> Chaos Proxy
+        <span class="tb-logo">⚡</span> Burp Lite
       </div>
       <div class="titlebar-right no-drag">
         <span class="tb-version">v1.0</span>
