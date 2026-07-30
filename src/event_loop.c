@@ -15,6 +15,7 @@
 #include "http_parser.h"
 #include "rule_engine.h"
 #include "chaos_engine.h"
+#include "cert_manager.h"
 #include "web_ui.h"
 #include "logger.h"
 
@@ -102,6 +103,48 @@ static void append_payload_to_disk(int conn_id, const char *type, const char *bu
 
 
 
+
+/* ─── 辅助：统一 IO (支持 SSL/HTTPS 与 普通 TCP/HTTP) ───────────────────────── */
+static ssize_t sys_read(conn_t *c, bool is_client, void *buf, size_t count) {
+    if (c->is_https && c->ssl_handshake_done) {
+        SSL *ssl = is_client ? c->client_ssl : c->upstream_ssl;
+        if (ssl) {
+            int ret = SSL_read(ssl, buf, count);
+            if (ret <= 0) {
+                int err = SSL_get_error(ssl, ret);
+                if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+                    errno = EAGAIN;
+                    return -1;
+                }
+                return 0; // EOF or Error
+            }
+            return ret;
+        }
+    }
+    int fd = is_client ? c->client_fd : c->upstream_fd;
+    return read(fd, buf, count);
+}
+
+static ssize_t sys_write(conn_t *c, bool is_client, const void *buf, size_t count) {
+    if (c->is_https && c->ssl_handshake_done) {
+        SSL *ssl = is_client ? c->client_ssl : c->upstream_ssl;
+        if (ssl) {
+            int ret = SSL_write(ssl, buf, count);
+            if (ret <= 0) {
+                int err = SSL_get_error(ssl, ret);
+                if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+                    errno = EAGAIN;
+                    return -1;
+                }
+                return 0;
+            }
+            return ret;
+        }
+    }
+    int fd = is_client ? c->client_fd : c->upstream_fd;
+    return write(fd, buf, count);
+}
+
 /* ─── 辅助：设置非阻塞 ──────────────────────────────────────────────────── */
 int set_nonblocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
@@ -131,6 +174,9 @@ static void close_conn(event_loop_t *loop, conn_t *c) {
         if (*curr == c) { *curr = c->next; break; }
         curr = &(*curr)->next;
     }
+
+    if (c->client_ssl) SSL_free(c->client_ssl);
+    if (c->upstream_ssl) SSL_free(c->upstream_ssl);
 
     if (c->client_fd   >= 0) close(c->client_fd);
     if (c->upstream_fd >= 0) close(c->upstream_fd);
@@ -390,8 +436,7 @@ void event_loop_run(event_loop_t *loop) {
                 && c->client_fd >= 0
                 && FD_ISSET(c->client_fd, &read_fds)) {
 
-                ssize_t bytes = read(c->client_fd,
-                                     c->req_buf + c->req_len,
+                ssize_t bytes = sys_read(c, true, c->req_buf + c->req_len,
                                      sizeof(c->req_buf) - c->req_len - 1);
                 if (bytes > 0) {
                     c->req_len += bytes;
@@ -424,10 +469,34 @@ void event_loop_run(event_loop_t *loop) {
                             continue;
                         }
 
-                        /* CONNECT 隧道：跳过规则匹配，直接发起 TCP 连接 */
+                        /* CONNECT 隧道处理：如果是 HTTPS 则介入中间人 */
                         if (strcmp(c->method, "CONNECT") == 0) {
-                            log_info("CONNECT 隧道: %s:%d", c->host, c->port);
-                            connect_to_upstream(c);
+                            log_info("拦截 HTTPS CONNECT: %s:%d", c->host, c->port);
+                            
+                            /* 1. 向客户端发送 200 建立隧道 */
+                            const char *ok_reply = "HTTP/1.1 200 Connection Established\r\n\r\n";
+                            write(c->client_fd, ok_reply, strlen(ok_reply));
+
+                            /* 2. 创建 SSL 上下文并绑定 FD */
+                            SSL_CTX *server_ctx = get_server_ssl_ctx(c->host);
+                            SSL_CTX *client_ctx = get_client_ssl_ctx();
+                            
+                            if (server_ctx && client_ctx) {
+                                c->is_https = true;
+                                c->client_ssl = SSL_new(server_ctx);
+                                SSL_set_fd(c->client_ssl, c->client_fd);
+                                
+                                c->upstream_ssl = SSL_new(client_ctx);
+                                // 注意：upstream_fd 目前还没建立，SSL_set_fd 将在 connect 后绑定
+                                
+                                c->state = CONN_STATE_CONNECT_UPSTREAM;
+                                connect_to_upstream(c);
+                            } else {
+                                /* 降级为盲透传 */
+                                c->state = CONN_STATE_CONNECT_UPSTREAM;
+                                connect_to_upstream(c);
+                            }
+                            
                             c = next;
                             continue;
                         }
@@ -443,8 +512,12 @@ void event_loop_run(event_loop_t *loop) {
                         log_info("%s %s → upstream %s:%d",
                                  c->method, c->path, c->host, c->port);
 
-                        /* 发起到真实服务器的连接 */
-                        connect_to_upstream(c);
+                        /* 发起到真实服务器的连接 (如果是 HTTPS 拦截后重入，则可能已经连接) */
+                        if (c->upstream_fd < 0) {
+                            connect_to_upstream(c);
+                        } else {
+                            c->state = CONN_STATE_WRITE_UPSTREAM;
+                        }
 
                     }
                 } else if (bytes == 0
@@ -473,8 +546,40 @@ void event_loop_run(event_loop_t *loop) {
                     c->resp_len = strlen(c->resp_buf);
                     c->state    = CONN_STATE_WRITE_CLIENT;
                 } else {
-                    if (strcmp(c->method, "CONNECT") == 0) {
-                        /* CONNECT 隧道：回复 200，切换为双向透传状态 */
+                    if (c->is_https) {
+                        log_info("upstream TLS 连接就绪，开始中间人双向握手...");
+                        SSL_set_fd(c->upstream_ssl, c->upstream_fd);
+                        
+                        /* 临时设为阻塞以简化握手状态机 */
+                        int flags = fcntl(c->client_fd, F_GETFL, 0);
+                        fcntl(c->client_fd, F_SETFL, flags & ~O_NONBLOCK);
+                        flags = fcntl(c->upstream_fd, F_GETFL, 0);
+                        fcntl(c->upstream_fd, F_SETFL, flags & ~O_NONBLOCK);
+
+                        if (SSL_accept(c->client_ssl) <= 0) {
+                            log_error("TLS Client 握手失败");
+                            close_conn(loop, c);
+                            c = next;
+                            continue;
+                        }
+                        if (SSL_connect(c->upstream_ssl) <= 0) {
+                            log_error("TLS Upstream 握手失败");
+                            close_conn(loop, c);
+                            c = next;
+                            continue;
+                        }
+
+                        /* 恢复非阻塞 */
+                        set_nonblocking(c->client_fd);
+                        set_nonblocking(c->upstream_fd);
+                        c->ssl_handshake_done = true;
+                        
+                        /* 握手完成后，重新复用 HTTP 状态机来读取真正的加密请求 */
+                        c->req_len = 0;
+                        memset(c->req_buf, 0, sizeof(c->req_buf));
+                        c->state = CONN_STATE_READ_CLIENT_REQ;
+                    } else if (strcmp(c->method, "CONNECT") == 0) {
+                        /* 盲透传隧道 (如果没有启用HTTPS拦截，由于前面已经替换过逻辑，一般不会走这里，但保留以防万一) */
                         const char *ok = "HTTP/1.1 200 Connection Established\r\n\r\n";
                         write(c->client_fd, ok, strlen(ok));
                         c->state = CONN_STATE_TUNNEL;
@@ -491,17 +596,16 @@ void event_loop_run(event_loop_t *loop) {
                 && c->upstream_fd >= 0
                 && FD_ISSET(c->upstream_fd, &write_fds)) {
 
-                ssize_t sent = write(c->upstream_fd,
-                                     c->req_buf + c->req_sent,
-                                     c->req_len  - c->req_sent);
-                if (sent > 0) {
-                    c->req_sent += sent;
+                ssize_t written = sys_write(c, false, c->req_buf + c->req_sent,
+                                                c->req_len - c->req_sent);
+                if (written > 0) {
+                    c->req_sent += written;
                     if (c->req_sent >= c->req_len) {
                         /* 请求发送完毕，等待响应 */
                         c->resp_len = 0;
                         c->state    = CONN_STATE_READ_UPSTREAM;
                     }
-                } else if (sent < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+                } else if (written < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
                     log_error("写入 upstream 失败: %s", strerror(errno));
                     close_conn(loop, c);
                 }
@@ -548,8 +652,7 @@ void event_loop_run(event_loop_t *loop) {
                     }
                 } else {
                     /* ── 故障注入模式：缓冲完整响应，等接收完后再注入规则 ── */
-                    ssize_t bytes = read(c->upstream_fd,
-                                         c->resp_buf + c->resp_len,
+                    ssize_t bytes = sys_read(c, false, c->resp_buf + c->resp_len,
                                          sizeof(c->resp_buf) - c->resp_len - 1);
                     if (bytes > 0) {
                         c->resp_len += (size_t)bytes;
@@ -608,15 +711,14 @@ void event_loop_run(event_loop_t *loop) {
                 && c->client_fd >= 0
                 && FD_ISSET(c->client_fd, &write_fds)) {
 
-                ssize_t sent = write(c->client_fd,
-                                     c->resp_buf + c->resp_sent,
-                                     c->resp_len  - c->resp_sent);
-                if (sent > 0) {
-                    c->resp_sent += sent;
+                ssize_t written = sys_write(c, true, c->resp_buf + c->resp_sent,
+                                                c->resp_len - c->resp_sent);
+                if (written > 0) {
+                    c->resp_sent += written;
                     if (c->resp_sent >= c->resp_len) {
                         close_conn(loop, c);
                     }
-                } else if (sent < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+                } else if (written < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
                     close_conn(loop, c);
                 }
             }

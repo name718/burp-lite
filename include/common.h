@@ -23,6 +23,7 @@
 #include <strings.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <openssl/ssl.h>
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -66,7 +67,8 @@ typedef enum {
     CONN_STATE_DELAY_WAIT,         /* 状态 9：延迟注入中，正在等待非阻塞定时器到期 */
     CONN_STATE_WRITE_CLIENT,       /* 状态 10：正在将最终响应数据写回给客户端 */
     CONN_STATE_TUNNEL,             /* 状态 11：HTTPS CONNECT 隧道——双向透传原始字节 */
-    CONN_STATE_CLOSED              /* 状态 12：处理完成，准备关闭并回收 Socket */
+    CONN_STATE_HTTPS_HANDSHAKE,    /* 状态 12：HTTPS 拦截时的 TLS 握手阶段 */
+    CONN_STATE_CLOSED              /* 状态 13：处理完成，准备关闭并回收 Socket */
 } conn_state_t;
 
 /**
@@ -97,6 +99,12 @@ typedef struct conn {
     char host[256];                /* 目标主机名: "example.com" 等 */
     int port;                      /* 目标端口: 80 等 */
     
+    /* HTTPS 支持 */
+    bool is_https;
+    SSL *client_ssl;
+    SSL *upstream_ssl;
+    bool ssl_handshake_done;       /* 标记与客户端和上游的握手是否均完成 */
+
     /* 故障规则指针 */
     void *matched_rule;            /* 如果匹配到了故障规则，指向该 rule 结构体 */
     

@@ -12,6 +12,7 @@
 #include "event_loop.h"
 #include "rule_engine.h"
 #include "logger.h"
+#include "cert_manager.h"
 #include <sys/stat.h>
 
 /* 全局 Reactor 事件循环指针，方便信号回调函数访问 */
@@ -49,6 +50,7 @@ static void handle_signal(int sig) {
     
     /* 2. 清理规则引擎分配的内存 */
     rule_engine_cleanup();
+    cert_manager_cleanup();
     
     /* 3. 打印最终的请求与故障注入统计报表 */
     print_metrics_summary();
@@ -105,6 +107,8 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    cert_manager_init();
+
     /* 步骤 2: 创建 Reactor 事件循环 (绑定 Socket 端口并开启监听) */
     g_loop = event_loop_create(port);
     if (!g_loop) {
@@ -119,6 +123,7 @@ int main(int argc, char *argv[]) {
     /* 步骤 4: 循环结束后的资源回收 */
     event_loop_destroy(g_loop);
     rule_engine_cleanup();
+    cert_manager_cleanup();
     print_metrics_summary();
 
     return 0;

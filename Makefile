@@ -2,9 +2,9 @@
 # Professional C project build configuration
 
 CC       ?= gcc
-CFLAGS   ?= -Wall -Wextra -Werror -std=c99 -Iinclude -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE
-DBGCFLAGS = -Wall -Wextra -g -DDEBUG -std=c99 -Iinclude -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE
-LDFLAGS  += -lm
+CFLAGS   ?= -Wall -Wextra -Werror -std=c99 -Iinclude -I/opt/homebrew/opt/openssl@3/include -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE
+DBGCFLAGS = -Wall -Wextra -g -DDEBUG -std=c99 -Iinclude -I/opt/homebrew/opt/openssl@3/include -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE
+LDFLAGS  += -lm -L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto
 
 SRC_DIR  = src
 INC_DIR  = include

@@ -160,7 +160,7 @@ int parse_http_request(conn_t *conn) {
 
     /* 步骤 4: 普通（非代理）请求 —— 从 Host 头提取上游地址 */
     char *host_hdr = strcasestr(conn->req_buf, "Host:");
-    conn->port = 80;
+    conn->port = conn->is_https ? 443 : 80;
     if (host_hdr) {
         char host_val[256] = {0};
         sscanf(host_hdr + 5, " %255[^\r\n]", host_val);
