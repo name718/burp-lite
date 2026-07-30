@@ -4,6 +4,7 @@ const child_process = require("child_process");
 const path = require("path");
 const url = require("url");
 const fs = require("fs");
+const net = require("net");
 var _documentCurrentScript = typeof document !== "undefined" ? document.currentScript : null;
 const __dirname$1 = path.dirname(url.fileURLToPath(typeof document === "undefined" ? require("url").pathToFileURL(__filename).href : _documentCurrentScript && _documentCurrentScript.tagName.toUpperCase() === "SCRIPT" && _documentCurrentScript.src || new URL("main.js", document.baseURI).href));
 let mainWindow = null;
@@ -164,6 +165,34 @@ electron.ipcMain.handle("payload:read", (_event, id, type) => {
   } catch (err) {
     return { ok: false, msg: err.message };
   }
+});
+electron.ipcMain.handle("payload:write", (_event, id, type, content) => {
+  try {
+    const filePath = path.join("/tmp/chaos_logs", `${id}_${type}.bin`);
+    fs.writeFileSync(filePath, content, "utf-8");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, msg: err.message };
+  }
+});
+electron.ipcMain.handle("request:sendRaw", (_event, port, rawRequest) => {
+  return new Promise((resolve) => {
+    const client = new net.Socket();
+    let responseData = Buffer.alloc(0);
+    let startTime = Date.now();
+    client.connect(port, "127.0.0.1", () => {
+      client.write(rawRequest);
+    });
+    client.on("data", (data) => {
+      responseData = Buffer.concat([responseData, data]);
+    });
+    client.on("close", () => {
+      resolve({ ok: true, latency: Date.now() - startTime, response: responseData.toString() });
+    });
+    client.on("error", (err) => {
+      resolve({ ok: false, msg: err.message, latency: Date.now() - startTime });
+    });
+  });
 });
 electron.app.whenReady().then(createWindow);
 electron.app.on("window-all-closed", () => {

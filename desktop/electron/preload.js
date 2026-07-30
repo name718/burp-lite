@@ -19,6 +19,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   writePayload: async (id, type, content) => {
     return await ipcRenderer.invoke('payload:write', id, type, content)
   },
+  
+  sendRawRequest: async (port, rawRequest) => {
+    return await ipcRenderer.invoke('request:sendRaw', port, rawRequest)
+  },
 
   // ── System Proxy ───────────────────────────────────────────────────────────
   setSystemProxy: (opts) => ipcRenderer.invoke('system:setProxy', opts),

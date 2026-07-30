@@ -32,19 +32,22 @@ static void free_rule_list(chaos_rule_t *head) {
 /**
  * @brief 解析 rules.json 文本内容，构建并返回一个 C 语言规则结构体链表
  */
-static chaos_rule_t *parse_json_rules(const char *content) {
+static int parse_json_rules(const char *content, chaos_rule_t **out_rules) {
+    if (!out_rules) return -1;
+    *out_rules = NULL;
+
     /* 调用 cJSON 树状解析函数 */
     cJSON *json = cJSON_Parse(content);
     if (!json) {
         log_error("JSON 语法解析失败，请检查 rules.json 格式是否正确！");
-        return NULL;
+        return -1;
     }
 
     /* 校验 rules.json 顶层必须是一个 JSON 数组 [] */
     if (!cJSON_IsArray(json)) {
         log_error("rules.json 根节点必须是数组格式 []！");
         cJSON_Delete(json);
-        return NULL;
+        return -1;
     }
 
     chaos_rule_t *head = NULL, *tail = NULL;
@@ -110,7 +113,8 @@ static chaos_rule_t *parse_json_rules(const char *content) {
     }
 
     cJSON_Delete(json); // 释放 cJSON 树产生的临时解析内存
-    return head;
+    *out_rules = head;
+    return 0;
 }
 
 /**
@@ -145,10 +149,11 @@ static void load_rules_from_file(void) {
     fclose(fp);
 
     /* 解析 JSON 字符串 */
-    chaos_rule_t *new_rules = parse_json_rules(buf);
+    chaos_rule_t *new_rules = NULL;
+    int ret = parse_json_rules(buf, &new_rules);
     free(buf);
 
-    if (new_rules) {
+    if (ret == 0) {
         /* 旧链表安全释放，原子替换为最新的规则链表 */
         free_rule_list(g_rules_head);
         g_rules_head = new_rules;

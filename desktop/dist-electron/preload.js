@@ -9,7 +9,17 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   readRules: () => electron.ipcRenderer.invoke("rules:read"),
   writeRules: (rules) => electron.ipcRenderer.invoke("rules:write", rules),
   // ── File Reading ───────────────────────────────────────────────────────────
-  readPayload: (id, type) => electron.ipcRenderer.invoke("payload:read", id, type),
+  readPayload: async (id, type) => {
+    const res = await electron.ipcRenderer.invoke("payload:read", id, type);
+    if (res.ok) return res.content;
+    return "";
+  },
+  writePayload: async (id, type, content) => {
+    return await electron.ipcRenderer.invoke("payload:write", id, type, content);
+  },
+  sendRawRequest: async (port, rawRequest) => {
+    return await electron.ipcRenderer.invoke("request:sendRaw", port, rawRequest);
+  },
   // ── System Proxy ───────────────────────────────────────────────────────────
   setSystemProxy: (opts) => electron.ipcRenderer.invoke("system:setProxy", opts),
   clearSystemProxy: () => electron.ipcRenderer.invoke("system:clearProxy"),

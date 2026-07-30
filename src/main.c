@@ -12,6 +12,7 @@
 #include "event_loop.h"
 #include "rule_engine.h"
 #include "logger.h"
+#include <sys/stat.h>
 
 /* 全局 Reactor 事件循环指针，方便信号回调函数访问 */
 static event_loop_t *g_loop = NULL;
@@ -93,6 +94,10 @@ int main(int argc, char *argv[]) {
 
     log_info("启动 Chaos-Proxy 代理服务...");
     log_success("🌐 Web UI 控制台可视化界面已在 http://127.0.0.1:%d/ui 开启", port);
+
+    /* 清理旧拦截日志并创建目录 */
+    system("rm -rf /tmp/chaos_logs");
+    mkdir("/tmp/chaos_logs", 0777);
 
     /* 步骤 1: 初始化故障注入规则引擎 (读取并解析 rules.json) */
     if (rule_engine_init(config_path) != 0) {

@@ -77,9 +77,46 @@ bool apply_chaos_injection(conn_t *conn, chaos_rule_t *rule) {
             size_t find_len = strlen(rule->find_str);
             size_t replace_len = strlen(rule->replace_str);
             
-            // 替换目标字符
-            if (find_len == replace_len) {
+            // 计算由于替换产生的长度差异
+            int diff = (int)replace_len - (int)find_len;
+            
+            // 检查替换后是否超出缓冲区
+            if (conn->resp_len + diff < sizeof(conn->resp_buf) - 1) {
+                if (diff != 0) {
+                    char *tail = pos + find_len;
+                    size_t tail_len = conn->resp_len - (tail - conn->resp_buf);
+                    memmove(pos + replace_len, tail, tail_len + 1);
+                }
                 memcpy(pos, rule->replace_str, replace_len);
+                conn->resp_len += diff;
+                
+                // 更新 Content-Length Header
+                if (diff != 0) {
+                    char *cl_hdr = strcasestr(conn->resp_buf, "Content-Length:");
+                    if (cl_hdr) {
+                        char *hdr_end = strstr(cl_hdr, "\r\n");
+                        if (hdr_end) {
+                            int old_cl = atoi(cl_hdr + 15);
+                            int new_cl = old_cl + diff;
+                            if (new_cl >= 0) {
+                                char new_hdr[64];
+                                int new_hdr_len = snprintf(new_hdr, sizeof(new_hdr), "Content-Length: %d", new_cl);
+                                size_t old_hdr_len = hdr_end - cl_hdr;
+                                
+                                int hdr_diff = new_hdr_len - (int)old_hdr_len;
+                                if (conn->resp_len + hdr_diff < sizeof(conn->resp_buf) - 1) {
+                                    if (hdr_diff != 0) {
+                                        size_t tail_len2 = conn->resp_len - (hdr_end - conn->resp_buf);
+                                        memmove(hdr_end + hdr_diff, hdr_end, tail_len2 + 1);
+                                        conn->resp_len += hdr_diff;
+                                    }
+                                    memcpy(cl_hdr, new_hdr, new_hdr_len);
+                                }
+                            }
+                        }
+                    }
+                }
+                
                 g_metrics.body_injections++;
                 log_chaos(rule->name, "BODY_REPLACE", "篡改 Body 内容: 替换 '%s' -> '%s'", rule->find_str, rule->replace_str);
             }

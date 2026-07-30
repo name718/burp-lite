@@ -523,7 +523,6 @@ const editingRule     = ref(null)
 const isNewRule       = ref(false)
 
 // Interceptor
-const interceptorOn   = ref(false)
 const interceptedItems= ref([])
 const activeInterceptItem = computed(() => interceptedItems.value[0] || null)
 
@@ -637,21 +636,22 @@ watch(selectedId, async (newVal) => {
   // Fetch full payloads from disk when selected
   if (api.readPayload) {
     try {
-      const req = await api.readPayload(item.connId, 'req')
-      if (req.ok && req.content) {
-        const parts = req.content.split('\r\n\r\n')
+      const reqContent = await api.readPayload(item.connId, 'req')
+      if (reqContent) {
+        const parts = reqContent.split('\r\n\r\n')
         item.reqHeaders = parts[0]
         item.reqRaw = parts.length > 1 ? parts.slice(1).join('\r\n\r\n') : ''
       } else {
-        item.reqRaw = 'Failed to load: ' + (req.msg || 'Unknown error')
+        item.reqRaw = 'Failed to load or empty payload'
       }
-      const resp = await api.readPayload(item.connId, 'resp')
-      if (resp.ok && resp.content) {
-        const parts = resp.content.split('\r\n\r\n')
+      
+      const respContent = await api.readPayload(item.connId, 'resp')
+      if (respContent) {
+        const parts = respContent.split('\r\n\r\n')
         item.respHeaders = parts[0]
         item.respRaw = parts.length > 1 ? parts.slice(1).join('\r\n\r\n') : ''
       } else {
-        item.respRaw = 'Failed to load: ' + (resp.msg || 'Unknown error')
+        item.respRaw = 'Failed to load or empty payload'
       }
     } catch (e) {
       console.error('Failed to read payload', e)
@@ -943,12 +943,31 @@ async function sendRepeater() {
   repeaterStatus.value = null
   repeaterMs.value = null
 
-  // When running in Electron with proxy, we just display mock for now.
-  // Real impl would use fetch() through the proxy.
-  await new Promise(r => setTimeout(r, 600 + Math.random() * 400))
-  repeaterStatus.value = 503
-  repeaterMs.value = Math.round(600 + Math.random() * 400)
-  repeaterResp.value = 'HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: 42\r\n\r\n{"code":5,"msg":"chaos ok","success":false}'
+  if (window.electronAPI && window.electronAPI.sendRawRequest) {
+    const res = await window.electronAPI.sendRawRequest(8888, repeaterReq.value)
+    if (res.ok) {
+      repeaterResp.value = res.response
+      repeaterMs.value = res.latency
+      // extract status code from response string
+      const match = res.response.match(/^HTTP\/1\.\d\s+(\d+)/)
+      if (match) {
+        repeaterStatus.value = parseInt(match[1])
+      } else {
+        repeaterStatus.value = 0
+      }
+    } else {
+      repeaterResp.value = 'Error: ' + res.msg
+      repeaterStatus.value = 500
+      repeaterMs.value = res.latency
+    }
+  } else {
+    // Web environment fallback
+    await new Promise(r => setTimeout(r, 600 + Math.random() * 400))
+    repeaterStatus.value = 503
+    repeaterMs.value = Math.round(600 + Math.random() * 400)
+    repeaterResp.value = 'HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: 42\r\n\r\n{"code":5,"msg":"chaos ok","success":false}'
+  }
+  
   repeaterLoading.value = false
 }
 

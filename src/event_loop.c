@@ -167,6 +167,14 @@ static void connect_to_upstream(conn_t *c) {
         return;
     }
 
+    if (up_fd >= FD_SETSIZE) {
+        log_error("socket fd %d exceeds FD_SETSIZE", up_fd);
+        close(up_fd);
+        freeaddrinfo(res);
+        c->state = CONN_STATE_CLOSED;
+        return;
+    }
+
     set_nonblocking(up_fd);
 
     int ret = connect(up_fd, res->ai_addr, res->ai_addrlen);
@@ -207,6 +215,13 @@ event_loop_t *event_loop_create(int port) {
     loop->listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (loop->listen_fd < 0) {
         log_error("创建 Socket 失败: %s", strerror(errno));
+        free(loop);
+        return NULL;
+    }
+
+    if (loop->listen_fd >= FD_SETSIZE) {
+        log_error("listen fd %d exceeds FD_SETSIZE", loop->listen_fd);
+        close(loop->listen_fd);
         free(loop);
         return NULL;
     }
@@ -349,13 +364,18 @@ void event_loop_run(event_loop_t *loop) {
             int client_fd = accept(loop->listen_fd,
                                    (struct sockaddr *)&client_addr, &client_len);
             if (client_fd >= 0) {
-                set_nonblocking(client_fd);
-                conn_t *nc = create_conn(client_fd);
-                if (nc) {
-                    nc->next         = loop->conns_head;
-                    loop->conns_head = nc;
-                } else {
+                if (client_fd >= FD_SETSIZE) {
+                    log_error("accept fd %d exceeds FD_SETSIZE", client_fd);
                     close(client_fd);
+                } else {
+                    set_nonblocking(client_fd);
+                    conn_t *nc = create_conn(client_fd);
+                    if (nc) {
+                        nc->next         = loop->conns_head;
+                        loop->conns_head = nc;
+                    } else {
+                        close(client_fd);
+                    }
                 }
             }
         }

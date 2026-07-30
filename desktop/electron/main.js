@@ -3,6 +3,7 @@ import { spawn, execSync } from 'child_process'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
+import net from 'net'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -207,6 +208,31 @@ ipcMain.handle('payload:write', (_event, id, type, content) => {
   } catch (err) {
     return { ok: false, msg: err.message }
   }
+})
+
+// ─── IPC: Send Raw Request ────────────────────────────────────────────────────
+ipcMain.handle('request:sendRaw', (_event, port, rawRequest) => {
+  return new Promise((resolve) => {
+    const client = new net.Socket()
+    let responseData = Buffer.alloc(0)
+    let startTime = Date.now()
+
+    client.connect(port, '127.0.0.1', () => {
+      client.write(rawRequest)
+    })
+
+    client.on('data', (data) => {
+      responseData = Buffer.concat([responseData, data])
+    })
+
+    client.on('close', () => {
+      resolve({ ok: true, latency: Date.now() - startTime, response: responseData.toString() })
+    })
+
+    client.on('error', (err) => {
+      resolve({ ok: false, msg: err.message, latency: Date.now() - startTime })
+    })
+  })
 })
 
 // ─── App Lifecycle ────────────────────────────────────────────────────────────
