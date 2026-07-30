@@ -1,633 +1,1633 @@
 <template>
-  <div class="desktop-app">
-    <!-- 1. 顶部全局系统控制栏 -->
-    <header class="top-bar">
-      <div class="brand">
-        <div class="logo">⚡</div>
-        <div class="brand-info">
-          <span class="title">Chaos-Proxy Desktop</span>
-          <span class="version">v1.0 (Burp Suite Edition)</span>
+  <div class="app">
+
+    <!-- ① 自定义标题栏 (无边框窗口) -->
+    <div class="titlebar drag-region">
+      <div class="titlebar-left no-drag">
+        <button class="wc wc-close"   @click="api.close()"    title="关闭" />
+        <button class="wc wc-min"     @click="api.minimize()" title="最小化" />
+        <button class="wc wc-max"     @click="api.maximize()" title="最大化" />
+      </div>
+      <div class="titlebar-title">
+        <span class="tb-logo">⚡</span> Chaos Proxy
+      </div>
+      <div class="titlebar-right no-drag">
+        <span class="tb-version">v1.0</span>
+      </div>
+    </div>
+
+    <!-- ② 顶部控制栏 -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <!-- 代理状态指示 -->
+        <div class="status-pill" :class="proxyRunning ? 'status-on' : 'status-off'">
+          <span class="status-dot" />
+          <span>{{ proxyRunning ? `Listening :${proxyPort}` : 'Stopped' }}</span>
+        </div>
+
+        <!-- 实时统计 -->
+        <div class="stat-chips">
+          <div class="stat-chip">
+            <span class="chip-val">{{ stats.total }}</span>
+            <span class="chip-lbl">Requests</span>
+          </div>
+          <div class="stat-chip chaos-chip">
+            <span class="chip-val">{{ stats.injected }}</span>
+            <span class="chip-lbl">Chaos</span>
+          </div>
+          <div class="stat-chip">
+            <span class="chip-val">{{ stats.avgMs }}ms</span>
+            <span class="chip-lbl">Avg Latency</span>
+          </div>
         </div>
       </div>
 
-      <div class="top-controls">
-        <!-- 系统代理一键开关 -->
-        <button 
-          class="toggle-btn" 
-          :class="{ active: systemProxyOn }" 
-          @click="systemProxyOn = !systemProxyOn"
-        >
-          <span class="dot"></span>
-          <span>系统代理: {{ systemProxyOn ? '已接管 (127.0.0.1:8888)' : '未开启' }}</span>
+      <div class="topbar-right no-drag">
+        <!-- 端口输入 -->
+        <div class="port-group">
+          <label>Port</label>
+          <input v-model.number="proxyPort" type="number" min="1024" max="65535"
+                 :disabled="proxyRunning" class="port-input" />
+        </div>
+
+        <!-- 系统代理开关 -->
+        <button class="ctrl-btn sys-btn"
+                :class="{ 'ctrl-on': systemProxyOn }"
+                @click="toggleSystemProxy"
+                :disabled="!proxyRunning"
+                :title="!proxyRunning ? '请先启动代理' : ''">
+          <span class="btn-dot" />
+          系统代理
         </button>
 
-        <!-- Interceptor 拦截器全局大开关 -->
-        <button 
-          class="toggle-btn interceptor-btn" 
-          :class="{ active: interceptorOn }" 
-          @click="interceptorOn = !interceptorOn"
-        >
-          <span>⚡ 实时拦截器: {{ interceptorOn ? 'ON (挂起中)' : 'OFF (直通)' }}</span>
+        <!-- 启动/停止 -->
+        <button class="ctrl-btn start-btn"
+                :class="{ 'stop-mode': proxyRunning }"
+                @click="toggleProxy">
+          {{ proxyRunning ? '⏹ Stop' : '▶ Start' }}
         </button>
       </div>
     </header>
 
-    <!-- 2. 主功能 Tab 导航 -->
-    <nav class="nav-tabs">
-      <button 
-        v-for="tab in tabs" 
-        :key="tab.id"
-        class="tab-btn" 
-        :class="{ active: activeTab === tab.id }"
-        @click="activeTab = tab.id"
-      >
-        <span class="tab-icon">{{ tab.icon }}</span>
-        <span>{{ tab.label }}</span>
-        <span v-if="tab.badge" class="tab-badge">{{ tab.badge }}</span>
+    <!-- ③ Tab 导航 -->
+    <nav class="tab-nav">
+      <button v-for="t in tabs" :key="t.id"
+              class="tab-btn"
+              :class="{ active: activeTab === t.id }"
+              @click="activeTab = t.id">
+        <span class="tab-icon">{{ t.icon }}</span>
+        {{ t.label }}
+        <span v-if="t.id === 'history' && historyList.length" class="tab-badge">
+          {{ historyList.length }}
+        </span>
+        <span v-if="t.id === 'interceptor' && pendingCount" class="tab-badge tab-badge-warn">
+          {{ pendingCount }}
+        </span>
       </button>
+      <!-- 日志开关 -->
+      <div class="tab-nav-right">
+        <button class="log-toggle" :class="{active: showLog}" @click="showLog = !showLog">
+          📋 Log
+        </button>
+      </div>
     </nav>
 
-    <!-- 3. Tab 页面内容视窗 -->
-    <div class="workspace-area">
-      <!-- A. HTTP History 抓包历史面板 (双栏布局: 上列表 下Inspector) -->
-      <section v-if="activeTab === 'history'" class="tab-page history-layout">
-        <!-- 上半部: 抓包请求流数据表格 -->
-        <div class="table-container">
-          <table class="packet-table">
+    <!-- ④ 主内容 -->
+    <div class="workspace">
+
+      <!-- ════════════ A. HTTP History ════════════ -->
+      <section v-show="activeTab === 'history'" class="tab-pane history-pane">
+        <!-- 工具栏 -->
+        <div class="pane-toolbar">
+          <button class="toolbar-btn danger-btn" @click="clearHistory">🗑 Clear</button>
+          <label class="filter-label">
+            <span>Filter:</span>
+            <input v-model="historyFilter" placeholder="/api/..." class="filter-input" />
+          </label>
+          <label class="filter-label">
+            <input type="checkbox" v-model="filterChaosOnly" />
+            <span>Chaos only</span>
+          </label>
+        </div>
+
+        <!-- 请求列表 -->
+        <div class="req-table-wrap">
+          <table class="req-table">
             <thead>
               <tr>
-                <th style="width: 60px;">#</th>
-                <th style="width: 90px;">Method</th>
-                <th style="width: 180px;">Host</th>
+                <th style="width:44px">#</th>
+                <th style="width:64px">Method</th>
+                <th style="width:180px">Host</th>
                 <th>Path</th>
-                <th style="width: 100px;">Status</th>
-                <th style="width: 100px;">Delay</th>
-                <th style="width: 90px;">Size</th>
-                <th style="width: 100px;">Time</th>
+                <th style="width:72px">Status</th>
+                <th style="width:90px">Latency</th>
+                <th style="width:72px">Size</th>
+                <th style="width:78px">Time</th>
               </tr>
             </thead>
             <tbody>
-              <tr 
-                v-for="pkg in historyList" 
-                :key="pkg.id"
-                :class="{ selected: selectedPkgId === pkg.id, chaos: pkg.injected }"
-                @click="selectedPkgId = pkg.id"
-              >
-                <td class="num">{{ pkg.id }}</td>
-                <td><span class="method-badge" :class="pkg.method.toLowerCase()">{{ pkg.method }}</span></td>
-                <td class="host">{{ pkg.host }}</td>
-                <td class="path">{{ pkg.path }}</td>
-                <td><span class="status-code" :class="getStatusClass(pkg.status)">{{ pkg.status }}</span></td>
-                <td class="delay"><span v-if="pkg.delay > 0" class="delay-tag">⏱ {{ pkg.delay }}ms</span><span v-else>-</span></td>
-                <td class="size">{{ pkg.size }}</td>
-                <td class="time">{{ pkg.time }}</td>
+              <tr v-for="item in filteredHistory" :key="item.id"
+                  :class="{ selected: selectedId === item.id, 'chaos-row': item.injected }"
+                  @click="selectedId = item.id">
+                <td class="mono muted">{{ item.id }}</td>
+                <td><span class="badge-method" :class="'m-' + item.method.toLowerCase()">{{ item.method }}</span></td>
+                <td class="mono ellipsis" :title="item.host">{{ item.host }}</td>
+                <td class="mono ellipsis" :title="item.path">{{ item.path }}</td>
+                <td><span class="badge-status" :class="statusClass(item.status)">{{ item.status }}</span></td>
+                <td class="mono" :class="item.latency > 1000 ? 'text-warn' : ''">
+                  {{ item.latency > 0 ? item.latency + 'ms' : '-' }}
+                </td>
+                <td class="mono muted">{{ item.size }}</td>
+                <td class="mono muted">{{ item.time }}</td>
+              </tr>
+              <tr v-if="filteredHistory.length === 0">
+                <td colspan="8" class="empty-row">
+                  {{ proxyRunning ? '等待请求流入...' : '启动代理后开始捕获' }}
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        <!-- 下半部: Request / Response 报文分栏 Inspector (对标 Burp Inspector) -->
-        <div v-if="selectedPkg" class="inspector-panel">
-          <div class="inspector-column">
+        <!-- Inspector 面板 -->
+        <div v-if="selectedItem" class="inspector">
+          <div class="inspector-col">
             <div class="inspector-header">
-              <span class="title">📥 Request (客户端请求)</span>
-              <button class="btn-action" @click="sendToRepeater(selectedPkg)">⏩ Send to Repeater</button>
+              <span>📥 Request</span>
+              <div class="inspector-tabs">
+                <button :class="{active: reqView==='raw'}" @click="reqView='raw'">Raw</button>
+                <button :class="{active: reqView==='headers'}" @click="reqView='headers'">Headers</button>
+              </div>
+              <button class="btn-sm btn-purple" @click="sendToRepeater(selectedItem)">
+                ⏩ Send to Repeater
+              </button>
             </div>
-            <div class="inspector-tabs">
-              <button :class="{ active: reqTab === 'headers' }" @click="reqTab = 'headers'">Headers</button>
-              <button :class="{ active: reqTab === 'raw' }" @click="reqTab = 'raw'">Raw Text</button>
-              <button :class="{ active: reqTab === 'json' }" @click="reqTab = 'json'">JSON</button>
-            </div>
-            <div class="inspector-body">
-              <pre v-if="reqTab === 'headers'">{{ selectedPkg.reqHeaders }}</pre>
-              <pre v-else-if="reqTab === 'raw'">{{ selectedPkg.reqRaw }}</pre>
-              <pre v-else>{{ selectedPkg.reqJson }}</pre>
-            </div>
+            <pre class="inspector-body">{{ reqView === 'raw' ? selectedItem.reqRaw : selectedItem.reqHeaders }}</pre>
           </div>
-
-          <div class="inspector-column">
+          <div class="inspector-col">
             <div class="inspector-header">
-              <span class="title">📤 Response (服务端响应 / 故障结果)</span>
-              <span v-if="selectedPkg.injected" class="chaos-flag">💥 Chaos Injected</span>
+              <span>📤 Response</span>
+              <div class="inspector-tabs">
+                <button :class="{active: respView==='raw'}" @click="respView='raw'">Raw</button>
+                <button :class="{active: respView==='headers'}" @click="respView='headers'">Headers</button>
+              </div>
+              <span v-if="selectedItem.injected" class="chaos-badge">💥 Chaos Applied</span>
             </div>
-            <div class="inspector-tabs">
-              <button :class="{ active: respTab === 'headers' }" @click="respTab = 'headers'">Headers</button>
-              <button :class="{ active: respTab === 'raw' }" @click="respTab = 'raw'">Raw Text</button>
-              <button :class="{ active: respTab === 'json' }" @click="respTab = 'json'">JSON</button>
-            </div>
-            <div class="inspector-body">
-              <pre v-if="respTab === 'headers'">{{ selectedPkg.respHeaders }}</pre>
-              <pre v-else-if="respTab === 'raw'">{{ selectedPkg.respRaw }}</pre>
-              <pre v-else>{{ selectedPkg.respJson }}</pre>
-            </div>
+            <pre class="inspector-body">{{ respView === 'raw' ? selectedItem.respRaw : selectedItem.respHeaders }}</pre>
+          </div>
+        </div>
+        <div v-else class="inspector inspector-empty">
+          <span>点击上方请求行查看报文详情</span>
+        </div>
+      </section>
+
+      <!-- ════════════ B. Interceptor ════════════ -->
+      <section v-show="activeTab === 'interceptor'" class="tab-pane interceptor-pane">
+        <div class="interceptor-toolbar">
+          <button class="ctrl-btn sys-btn" :class="{'ctrl-on': interceptorOn}"
+                  @click="interceptorOn = !interceptorOn">
+            <span class="btn-dot" /> 拦截器 {{ interceptorOn ? 'ON (挂起)' : 'OFF (直通)' }}
+          </button>
+          <button class="ctrl-btn start-btn" @click="forwardRequest" :disabled="!interceptorOn">
+            ⏩ Forward
+          </button>
+          <button class="ctrl-btn danger-btn" @click="dropRequest" :disabled="!interceptorOn">
+            🗑 Drop
+          </button>
+          <span class="interceptor-hint" v-if="interceptorOn">
+            {{ pendingCount }} 个请求挂起等待放行
+          </span>
+        </div>
+        <div class="interceptor-body">
+          <div class="interceptor-editor">
+            <div class="editor-label">✏️ 可编辑挂起的请求报文（手动改包后 Forward）</div>
+            <textarea v-model="interceptedRaw" class="raw-editor" spellcheck="false" />
           </div>
         </div>
       </section>
 
-      <!-- B. Proxy Interceptor 实时请求拦截挂起视图 -->
-      <section v-else-if="activeTab === 'interceptor'" class="tab-page interceptor-layout">
-        <div class="interceptor-bar">
-          <button class="btn-forward" @click="forwardCurrent">⏩ Forward (放行连接)</button>
-          <button class="btn-drop" @click="dropCurrent">🗑 Drop (丢弃连接)</button>
-          <span class="status-tip">状态: 有 1 个请求被挂起等待审批...</span>
+      <!-- ════════════ C. Chaos Rules ════════════ -->
+      <section v-show="activeTab === 'rules'" class="tab-pane rules-pane">
+        <!-- 左侧规则列表 -->
+        <div class="rules-list">
+          <div class="rules-list-header">
+            <span>规则列表 <span class="muted">({{ enabledCount }}/{{ rules.length }} 启用)</span></span>
+            <button class="btn-sm btn-orange" @click="addRule">+ 新建</button>
+          </div>
+          <div class="rules-scroll">
+            <div v-for="rule in rules" :key="rule._id"
+                 class="rule-card"
+                 :class="{ 'rule-selected': editingRule?._id === rule._id, 'rule-disabled': !rule.enabled }"
+                 @click="selectRule(rule)">
+              <div class="rule-card-top">
+                <span class="rule-name">{{ rule.name || '未命名规则' }}</span>
+                <label class="toggle-switch" @click.stop>
+                  <input type="checkbox" v-model="rule.enabled" @change="saveRules" />
+                  <span class="toggle-track" />
+                </label>
+              </div>
+              <div class="rule-url">
+                <span class="method-tiny" :class="'m-' + (rule.match.method||'all').toLowerCase()">
+                  {{ rule.match.method || 'ALL' }}
+                </span>
+                {{ rule.match.url || '匹配所有' }}
+              </div>
+              <div class="rule-badges">
+                <span v-if="rule.inject.delay_ms" class="rbadge rbadge-orange">
+                  DELAY {{ rule.inject.delay_ms }}ms
+                </span>
+                <span v-if="rule.inject.status_code" class="rbadge rbadge-red">
+                  {{ rule.inject.status_code }}
+                </span>
+                <span v-if="rule.inject.body_modify?.find" class="rbadge rbadge-purple">BODY</span>
+                <span v-if="rule.inject.close_connection" class="rbadge rbadge-yellow">DROP</span>
+              </div>
+            </div>
+            <div v-if="rules.length === 0" class="rules-empty">
+              暂无规则，点击「新建」添加
+            </div>
+          </div>
         </div>
-        <div class="inspector-panel flex-1">
-          <div class="inspector-column width-100">
-            <div class="inspector-header">
-              <span class="title">✏️ 可编辑挂起的请求报文 (手动改包)</span>
+
+        <!-- 右侧规则编辑器 -->
+        <div class="rule-editor" v-if="editingRule">
+          <div class="editor-header">
+            <span class="editor-title">
+              {{ isNewRule ? '✨ 新建规则' : `✏️ 编辑：${editingRule.name || '未命名'}` }}
+            </span>
+            <div class="editor-actions">
+              <button class="btn-sm btn-green" @click="saveCurrentRule">💾 保存</button>
+              <button v-if="!isNewRule" class="btn-sm btn-red" @click="deleteCurrentRule">🗑 删除</button>
+              <button class="btn-sm" @click="editingRule = null">✕ 关闭</button>
             </div>
-            <div class="inspector-body">
-              <textarea v-model="interceptedRaw" class="raw-textarea"></textarea>
+          </div>
+
+          <div class="editor-form">
+            <!-- 基础信息 -->
+            <div class="form-section">
+              <div class="form-row">
+                <label class="form-label">规则名称</label>
+                <input v-model="editingRule.name" placeholder="模拟登录接口系统繁忙..." class="form-input" />
+              </div>
+              <div class="form-row two-col">
+                <div>
+                  <label class="form-label">URL 匹配（前缀 / 精确）</label>
+                  <input v-model="editingRule.match.url" placeholder="/api/user/login" class="form-input" />
+                </div>
+                <div>
+                  <label class="form-label">请求方法</label>
+                  <select v-model="editingRule.match.method" class="form-input">
+                    <option value="">ALL</option>
+                    <option>GET</option>
+                    <option>POST</option>
+                    <option>PUT</option>
+                    <option>DELETE</option>
+                    <option>PATCH</option>
+                  </select>
+                </div>
+              </div>
             </div>
+
+            <!-- 故障注入模块 -->
+            <div class="form-section-title">💥 故障注入</div>
+
+            <!-- 延迟注入 -->
+            <div class="inject-block" :class="{active: delayEnabled}">
+              <div class="inject-header">
+                <label class="inject-toggle">
+                  <input type="checkbox" v-model="delayEnabled" />
+                  <span class="inject-name">⏱ 延迟注入 (Delay)</span>
+                </label>
+                <span class="inject-val" v-if="delayEnabled">{{ editingRule.inject.delay_ms }} ms</span>
+              </div>
+              <div v-if="delayEnabled" class="inject-body">
+                <input type="range" v-model.number="editingRule.inject.delay_ms"
+                       min="0" max="10000" step="100" class="delay-slider" />
+                <input type="number" v-model.number="editingRule.inject.delay_ms"
+                       min="0" max="30000" class="delay-number" />
+                <span class="form-unit">ms</span>
+              </div>
+            </div>
+
+            <!-- 状态码篡改 -->
+            <div class="inject-block" :class="{active: statusEnabled}">
+              <div class="inject-header">
+                <label class="inject-toggle">
+                  <input type="checkbox" v-model="statusEnabled" />
+                  <span class="inject-name">🔴 状态码篡改 (Status Override)</span>
+                </label>
+              </div>
+              <div v-if="statusEnabled" class="inject-body">
+                <input type="number" v-model.number="editingRule.inject.status_code"
+                       min="100" max="599" placeholder="503" class="form-input" style="width:120px" />
+                <span class="form-hint">常用: 500, 503, 429, 404, 401</span>
+              </div>
+            </div>
+
+            <!-- Body 替换 -->
+            <div class="inject-block" :class="{active: bodyEnabled}">
+              <div class="inject-header">
+                <label class="inject-toggle">
+                  <input type="checkbox" v-model="bodyEnabled" />
+                  <span class="inject-name">🔀 响应体替换 (Body Modify)</span>
+                </label>
+              </div>
+              <div v-if="bodyEnabled" class="inject-body body-edit">
+                <div>
+                  <label class="form-label">查找 (Find)</label>
+                  <input v-model="editingRule.inject.body_modify.find"
+                         placeholder='"success":true' class="form-input" />
+                </div>
+                <div>
+                  <label class="form-label">替换为 (Replace)</label>
+                  <input v-model="editingRule.inject.body_modify.replace"
+                         placeholder='"success":false,"msg":"系统繁忙"' class="form-input" />
+                </div>
+              </div>
+            </div>
+
+            <!-- 连接中断 -->
+            <div class="inject-block" :class="{active: editingRule.inject.close_connection}">
+              <div class="inject-header">
+                <label class="inject-toggle">
+                  <input type="checkbox" v-model="editingRule.inject.close_connection" />
+                  <span class="inject-name">🔌 连接中断 (Drop Connection)</span>
+                </label>
+                <span v-if="editingRule.inject.close_connection" class="inject-warn">
+                  ⚠️ 接收请求后立即关闭 Socket
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 空状态 -->
+        <div v-else class="rule-editor rule-editor-empty">
+          <div class="empty-hint">
+            <div class="empty-icon">💥</div>
+            <div>从左侧选择规则编辑，或点击「新建」创建一条故障注入规则</div>
           </div>
         </div>
       </section>
 
-      <!-- C. Chaos Rules 故障规则配置视图 -->
-      <section v-else-if="activeTab === 'rules'" class="tab-page rules-layout">
-        <div class="rules-view">
-          <h2>💥 Chaos 故障规则全量配置视窗</h2>
-          <p class="desc">在这里配置对目标接口注入延迟、状态码伪造与 Body 内容篡改的规则。</p>
-        </div>
-      </section>
-
-      <!-- D. Repeater 请求重发视窗 -->
-      <section v-else-if="activeTab === 'repeater'" class="tab-page repeater-layout">
-        <div class="repeater-bar">
-          <button class="btn-primary" @click="sendRepeater">🚀 Send (重发请求)</button>
-        </div>
-        <div class="inspector-panel flex-1">
-          <div class="inspector-column">
-            <div class="inspector-header"><span class="title">Request 构造器</span></div>
-            <div class="inspector-body">
-              <textarea v-model="repeaterReq" class="raw-textarea"></textarea>
-            </div>
+      <!-- ════════════ D. Repeater ════════════ -->
+      <section v-show="activeTab === 'repeater'" class="tab-pane repeater-pane">
+        <div class="repeater-toolbar">
+          <div class="target-group">
+            <label>Target:</label>
+            <input v-model="repeaterTarget" placeholder="http://example.com" class="target-input" />
           </div>
-          <div class="inspector-column">
-            <div class="inspector-header"><span class="title">Response 反馈结果</span></div>
-            <div class="inspector-body">
-              <pre>{{ repeaterResp }}</pre>
+          <button class="ctrl-btn start-btn" @click="sendRepeater" :disabled="repeaterLoading">
+            {{ repeaterLoading ? '⏳ Sending...' : '🚀 Send' }}
+          </button>
+          <button class="btn-sm" @click="repeaterResp = ''">Clear</button>
+        </div>
+        <div class="repeater-body">
+          <div class="repeater-col">
+            <div class="repeater-col-header">✏️ Request</div>
+            <textarea v-model="repeaterReq" class="raw-editor" spellcheck="false"
+                      placeholder="POST /api/user/login HTTP/1.1&#10;Host: example.com&#10;Content-Type: application/json&#10;&#10;{&quot;user&quot;: &quot;admin&quot;}" />
+          </div>
+          <div class="repeater-col">
+            <div class="repeater-col-header">
+              📨 Response
+              <span v-if="repeaterStatus" class="badge-status" :class="statusClass(repeaterStatus)">
+                {{ repeaterStatus }}
+              </span>
+              <span v-if="repeaterMs" class="muted">{{ repeaterMs }}ms</span>
             </div>
+            <pre class="raw-editor" style="overflow:auto; white-space:pre-wrap">{{ repeaterResp || '点击 Send 发送请求...' }}</pre>
           </div>
         </div>
       </section>
     </div>
+
+    <!-- ⑤ 底部日志面板 (可折叠) -->
+    <div class="log-panel" :class="{collapsed: !showLog}">
+      <div class="log-header">
+        <span>📋 Console Log <span class="muted">({{ logLines.length }} lines)</span></span>
+        <button class="btn-sm" @click="logLines = []">Clear</button>
+      </div>
+      <div class="log-body" ref="logBodyEl">
+        <div v-for="(line, i) in logLines" :key="i" class="log-line"
+             :class="logClass(line)">{{ line }}</div>
+        <div v-if="logLines.length === 0" class="log-empty">日志为空</div>
+      </div>
+    </div>
+
+    <!-- Toast 通知 -->
+    <transition name="toast-fade">
+      <div v-if="toast.show" class="toast" :class="'toast-' + toast.type">
+        {{ toast.msg }}
+      </div>
+    </transition>
+
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 
-const activeTab = ref('history')
-const systemProxyOn = ref(false)
-const interceptorOn = ref(true)
-
-const tabs = computed(() => [
-  { id: 'history', label: 'HTTP 抓包历史 (History)', icon: '📜', badge: historyList.value.length },
-  { id: 'interceptor', label: '实时拦截 (Interceptor)', icon: '🛑', badge: '1' },
-  { id: 'rules', label: '故障规则 (Chaos Rules)', icon: '💥' },
-  { id: 'repeater', label: '重发器 (Repeater)', icon: '🔄' }
-])
-
-// 抓包模拟列表数据 (对标 Burp Suite HTTP History)
-const historyList = ref([
-  {
-    id: 1,
-    method: 'POST',
-    host: 'api.github.com',
-    path: '/api/user/login',
-    status: 503,
-    delay: 2000,
-    size: '1.2 KB',
-    time: '15:30:12',
-    injected: true,
-    reqHeaders: 'POST /api/user/login HTTP/1.1\r\nHost: api.github.com\r\nContent-Type: application/json',
-    reqRaw: '{\n  "user": "admin",\n  "pass": "secret"\n}',
-    reqJson: '{\n  "user": "admin",\n  "pass": "secret"\n}',
-    respHeaders: 'HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: 27',
-    respRaw: '{\n  "code": 5,\n  "msg": "chaos ok"\n}',
-    respJson: '{\n  "code": 5,\n  "msg": "chaos ok"\n}'
-  },
-  {
-    id: 2,
-    method: 'GET',
-    host: 'example.com',
-    path: '/api/order/list',
-    status: 200,
-    delay: 3000,
-    size: '4.8 KB',
-    time: '15:30:15',
-    injected: true,
-    reqHeaders: 'GET /api/order/list HTTP/1.1\r\nHost: example.com',
-    reqRaw: 'GET /api/order/list HTTP/1.1',
-    reqJson: '{}',
-    respHeaders: 'HTTP/1.1 200 OK\r\nContent-Type: application/json',
-    respRaw: '{\n  "code": 0,\n  "data": [ {"id": 101, "price": 99} ]\n}',
-    respJson: '{\n  "code": 0,\n  "data": [ {"id": 101, "price": 99} ]\n}'
-  },
-  {
-    id: 3,
-    method: 'GET',
-    host: 'api.github.com',
-    path: '/api/ping',
-    status: 200,
-    delay: 0,
-    size: '310 B',
-    time: '15:30:18',
-    injected: false,
-    reqHeaders: 'GET /api/ping HTTP/1.1\r\nHost: api.github.com',
-    reqRaw: 'GET /api/ping HTTP/1.1',
-    reqJson: '{}',
-    respHeaders: 'HTTP/1.1 200 OK\r\nContent-Type: application/json',
-    respRaw: '{\n  "code": 0,\n  "msg": "proxy forwarded"\n}',
-    respJson: '{\n  "code": 0,\n  "msg": "proxy forwarded"\n}'
-  }
-])
-
-const selectedPkgId = ref(1)
-const reqTab = ref('headers')
-const respTab = ref('headers')
-
-const selectedPkg = computed(() => {
-  return historyList.value.find(p => p.id === selectedPkgId.value)
-})
-
-const getStatusClass = (status) => {
-  if (status >= 500) return 'err-500'
-  if (status >= 400) return 'err-400'
-  return 'ok-200'
+// ── Electron API bridge ───────────────────────────────────────────────────────
+const isElectron = typeof window !== 'undefined' && !!window.electronAPI
+const api = isElectron ? window.electronAPI : {
+  startProxy: async () => ({ ok: false, msg: 'Not in Electron' }),
+  stopProxy: async () => ({ ok: false }),
+  getProxyStatus: async () => ({ running: false }),
+  readRules: async () => ({ ok: true, rules: mockRules() }),
+  writeRules: async () => ({ ok: true }),
+  setSystemProxy: async () => ({ ok: true }),
+  clearSystemProxy: async () => ({ ok: true }),
+  onLogLine: () => {},
+  onProxyStopped: () => {},
+  removeAllListeners: () => {},
+  minimize: () => {}, maximize: () => {}, close: () => {},
 }
 
-// 拦截器改包 Raw Text
-const interceptedRaw = ref(
-  'POST /api/user/login HTTP/1.1\r\nHost: api.github.com\r\nContent-Type: application/json\r\n\r\n{\n  "user": "intercepted_admin"\n}'
+// ── State ─────────────────────────────────────────────────────────────────────
+const activeTab       = ref('history')
+const proxyRunning    = ref(false)
+const proxyPort       = ref(8888)
+const systemProxyOn   = ref(false)
+const interceptorOn   = ref(false)
+const showLog         = ref(false)
+const logLines        = ref([])
+const logBodyEl       = ref(null)
+
+// History
+const historyList     = ref([])
+const selectedId      = ref(null)
+const historyFilter   = ref('')
+const filterChaosOnly = ref(false)
+const reqView         = ref('raw')
+const respView        = ref('raw')
+let historySeq = 0
+
+// Rules
+const rules           = ref([])
+const editingRule     = ref(null)
+const isNewRule       = ref(false)
+
+// Interceptor
+const pendingCount    = ref(0)
+const interceptedRaw  = ref(
+  'POST /api/user/login HTTP/1.1\r\nHost: api.example.com\r\nContent-Type: application/json\r\n\r\n{"user":"admin","pass":"secret"}'
 )
 
-// Repeater 数据
-const repeaterReq = ref('POST /api/user/login HTTP/1.1\r\nHost: api.github.com\r\n\r\n{"user":"repeater"}')
-const repeaterResp = ref('点击 🚀 Send 查看重发数据反馈...')
+// Repeater
+const repeaterTarget  = ref('http://127.0.0.1:8888')
+const repeaterReq     = ref('POST /api/user/login HTTP/1.1\r\nHost: api.example.com\r\nContent-Type: application/json\r\n\r\n{"user":"repeater"}')
+const repeaterResp    = ref('')
+const repeaterStatus  = ref(null)
+const repeaterMs      = ref(null)
+const repeaterLoading = ref(false)
 
-const sendToRepeater = (pkg) => {
-  repeaterReq.value = pkg.reqHeaders + '\r\n\r\n' + pkg.reqRaw
+// Toast
+const toast = ref({ show: false, msg: '', type: 'info' })
+
+// Stats
+const stats = computed(() => {
+  const total    = historyList.value.length
+  const injected = historyList.value.filter(h => h.injected).length
+  const latencies = historyList.value.map(h => h.latency).filter(Boolean)
+  const avgMs = latencies.length
+    ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length)
+    : 0
+  return { total, injected, avgMs }
+})
+
+// ── Tab config ────────────────────────────────────────────────────────────────
+const tabs = [
+  { id: 'history',     icon: '📜', label: 'HTTP History' },
+  { id: 'interceptor', icon: '🛑', label: 'Interceptor'  },
+  { id: 'rules',       icon: '💥', label: 'Chaos Rules'  },
+  { id: 'repeater',    icon: '🔄', label: 'Repeater'     },
+]
+
+// ── Computed ──────────────────────────────────────────────────────────────────
+const filteredHistory = computed(() => {
+  let list = historyList.value
+  if (historyFilter.value) {
+    const f = historyFilter.value.toLowerCase()
+    list = list.filter(h => h.path.toLowerCase().includes(f) || h.host.toLowerCase().includes(f))
+  }
+  if (filterChaosOnly.value) list = list.filter(h => h.injected)
+  return list.slice().reverse()
+})
+
+const selectedItem = computed(() =>
+  historyList.value.find(h => h.id === selectedId.value) || null
+)
+
+const enabledCount = computed(() => rules.value.filter(r => r.enabled).length)
+
+// Rule editor computed toggles
+const delayEnabled = computed({
+  get: () => editingRule.value ? editingRule.value.inject.delay_ms > 0 : false,
+  set: (v) => {
+    if (!editingRule.value) return
+    editingRule.value.inject.delay_ms = v ? 2000 : 0
+  }
+})
+
+const statusEnabled = computed({
+  get: () => editingRule.value ? !!editingRule.value.inject.status_code : false,
+  set: (v) => {
+    if (!editingRule.value) return
+    editingRule.value.inject.status_code = v ? 500 : null
+  }
+})
+
+const bodyEnabled = computed({
+  get: () => editingRule.value
+    ? !!(editingRule.value.inject.body_modify?.find)
+    : false,
+  set: (v) => {
+    if (!editingRule.value) return
+    editingRule.value.inject.body_modify = v
+      ? { find: '', replace: '' }
+      : null
+  }
+})
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function statusClass(code) {
+  if (!code) return ''
+  if (code >= 500) return 's-5xx'
+  if (code >= 400) return 's-4xx'
+  if (code >= 300) return 's-3xx'
+  return 's-2xx'
+}
+
+function logClass(line) {
+  const l = line.toLowerCase()
+  if (l.includes('error') || l.includes('err]') || l.includes('fail')) return 'log-err'
+  if (l.includes('chaos') || l.includes('inject') || l.includes('delay')) return 'log-chaos'
+  if (l.includes('warn') || l.includes('drop')) return 'log-warn'
+  return 'log-info'
+}
+
+function showToast(msg, type = 'info', ms = 3000) {
+  toast.value = { show: true, msg, type }
+  setTimeout(() => { toast.value.show = false }, ms)
+}
+
+function uid() {
+  return Math.random().toString(36).slice(2, 10)
+}
+
+function nowTime() {
+  return new Date().toLocaleTimeString('zh-CN', { hour12: false })
+}
+
+// ── Proxy Control ─────────────────────────────────────────────────────────────
+async function toggleProxy() {
+  if (proxyRunning.value) {
+    const res = await api.stopProxy()
+    if (res.ok) {
+      proxyRunning.value = false
+      showToast('代理已停止', 'warn')
+    } else {
+      showToast(res.msg || '停止失败', 'error')
+    }
+  } else {
+    const res = await api.startProxy({ port: proxyPort.value })
+    if (res.ok) {
+      proxyRunning.value = true
+      showToast(`代理已启动，监听 :${proxyPort.value}`, 'success')
+    } else {
+      showToast(res.msg || '启动失败', 'error')
+    }
+  }
+}
+
+async function toggleSystemProxy() {
+  if (!proxyRunning.value) return
+  if (systemProxyOn.value) {
+    await api.clearSystemProxy()
+    systemProxyOn.value = false
+    showToast('系统代理已关闭', 'warn')
+  } else {
+    const res = await api.setSystemProxy({ host: '127.0.0.1', port: proxyPort.value })
+    if (res.ok) {
+      systemProxyOn.value = true
+      showToast(`系统代理已设置 → 127.0.0.1:${proxyPort.value}`, 'success')
+    } else {
+      showToast(res.msg || '设置系统代理失败', 'error')
+    }
+  }
+}
+
+// ── Rules ─────────────────────────────────────────────────────────────────────
+function emptyRule() {
+  return {
+    _id: uid(),
+    name: '',
+    enabled: true,
+    match: { url: '', method: '' },
+    inject: {
+      delay_ms: 0,
+      status_code: null,
+      body_modify: null,
+      close_connection: false,
+    }
+  }
+}
+
+async function loadRules() {
+  const res = await api.readRules()
+  if (res.ok) {
+    rules.value = res.rules.map(r => ({ ...r, _id: uid() }))
+  }
+}
+
+async function saveRules() {
+  await api.writeRules(rules.value)
+}
+
+function addRule() {
+  const r = emptyRule()
+  rules.value.push(r)
+  editingRule.value = r
+  isNewRule.value = true
+}
+
+function selectRule(rule) {
+  // Deep clone to allow cancellation without side effects
+  editingRule.value = JSON.parse(JSON.stringify(rule))
+  isNewRule.value = false
+}
+
+async function saveCurrentRule() {
+  if (!editingRule.value) return
+  const idx = rules.value.findIndex(r => r._id === editingRule.value._id)
+  if (idx >= 0) {
+    rules.value[idx] = { ...editingRule.value }
+  } else {
+    rules.value.push({ ...editingRule.value })
+  }
+  await saveRules()
+  isNewRule.value = false
+  showToast('规则已保存', 'success')
+}
+
+async function deleteCurrentRule() {
+  if (!editingRule.value) return
+  rules.value = rules.value.filter(r => r._id !== editingRule.value._id)
+  editingRule.value = null
+  await saveRules()
+  showToast('规则已删除', 'warn')
+}
+
+// ── History ───────────────────────────────────────────────────────────────────
+function clearHistory() {
+  historyList.value = []
+  selectedId.value = null
+  historySeq = 0
+}
+
+function pushHistoryEntry(entry) {
+  historySeq++
+  historyList.value.push({ id: historySeq, time: nowTime(), ...entry })
+  if (historyList.value.length > 1000) historyList.value.shift()
+}
+
+/**
+ * Parse a log line from the C proxy stdout into a history entry.
+ *
+ * The C proxy emits a structured line for every completed request:
+ *   PROXY GET /gateway?foo=1 200 1234 localhost
+ *   ^     ^   ^              ^   ^    ^
+ *   tag   method path        status size host
+ *
+ * Other lines are logger.c coloured output – shown in the log panel only.
+ */
+function parseLogLine(rawLine) {
+  // Strip ANSI escape codes (e.g. \033[32m ... \033[0m)
+  // eslint-disable-next-line no-control-regex
+  const line = rawLine.replace(/\x1b\[[0-9;]*m/g, '').trim()
+
+  logLines.value.push(line)
+  scrollLog()
+
+  // Structured line: "PROXY METHOD path statusCode sizeBytes host"
+  const m = line.match(/^PROXY\s+(\w+)\s+(\S+)\s+(\d+)\s+(\d+)\s*(\S*)/)
+  if (m) {
+    const isChaos = /chaos|inject|delay|drop/i.test(line)
+    pushHistoryEntry({
+      method:      m[1].toUpperCase(),
+      host:        m[5] || 'localhost',
+      path:        m[2],
+      status:      parseInt(m[3]),
+      latency:     0,
+      size:        formatBytes(parseInt(m[4])),
+      injected:    isChaos,
+      reqHeaders:  `${m[1]} ${m[2]} HTTP/1.1\r\nHost: ${m[5] || 'localhost'}`,
+      reqRaw:      '',
+      respHeaders: `HTTP/1.1 ${m[3]}`,
+      respRaw:     '',
+    })
+    return
+  }
+
+  // Fallback: also try to pick up CHAOS log lines and mark last entry as injected
+  if (/\[CHAOS\]/i.test(line) && historyList.value.length > 0) {
+    const last = historyList.value[historyList.value.length - 1]
+    last.injected = true
+  }
+}
+
+function formatBytes(n) {
+  if (!n || n === 0) return '-'
+  if (n < 1024) return n + ' B'
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB'
+  return (n / 1024 / 1024).toFixed(1) + ' MB'
+}
+
+function scrollLog() {
+  nextTick(() => {
+    if (logBodyEl.value) {
+      logBodyEl.value.scrollTop = logBodyEl.value.scrollHeight
+    }
+  })
+}
+
+// ── Interceptor ───────────────────────────────────────────────────────────────
+function forwardRequest() {
+  pendingCount.value = Math.max(0, pendingCount.value - 1)
+  showToast('请求已放行', 'success')
+}
+
+function dropRequest() {
+  pendingCount.value = Math.max(0, pendingCount.value - 1)
+  showToast('请求已丢弃', 'warn')
+}
+
+// ── Repeater ──────────────────────────────────────────────────────────────────
+async function sendRepeater() {
+  repeaterLoading.value = true
+  repeaterResp.value = ''
+  repeaterStatus.value = null
+  repeaterMs.value = null
+
+  // When running in Electron with proxy, we just display mock for now.
+  // Real impl would use fetch() through the proxy.
+  await new Promise(r => setTimeout(r, 600 + Math.random() * 400))
+  repeaterStatus.value = 503
+  repeaterMs.value = Math.round(600 + Math.random() * 400)
+  repeaterResp.value = 'HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: 42\r\n\r\n{"code":5,"msg":"chaos ok","success":false}'
+  repeaterLoading.value = false
+}
+
+// ── Send to Repeater ──────────────────────────────────────────────────────────
+function sendToRepeater(item) {
+  repeaterReq.value = (item.reqHeaders || '') + '\r\n\r\n' + (item.reqRaw || '')
   activeTab.value = 'repeater'
 }
 
-const sendRepeater = () => {
-  repeaterResp.value = 'HTTP/1.1 503 Service Unavailable (Repeated Test Result)\r\nContent-Type: application/json\r\n\r\n{\n  "code": 5,\n  "msg": "chaos repeater feedback"\n}'
+// ── Mock data (browser mode) ──────────────────────────────────────────────────
+function mockRules() {
+  return [
+    {
+      name: '模拟登录接口系统繁忙',
+      enabled: true,
+      match: { url: '/api/user/login', method: 'POST' },
+      inject: {
+        delay_ms: 2000,
+        status_code: 503,
+        body_modify: { find: '"success":true', replace: '"success":false,"msg":"系统繁忙，请稍后重试"' },
+        close_connection: false,
+      }
+    },
+    {
+      name: '订单列表慢查询',
+      enabled: true,
+      match: { url: '/api/order/list', method: '' },
+      inject: { delay_ms: 5000, status_code: null, body_modify: null, close_connection: false }
+    },
+  ]
 }
 
-const forwardCurrent = () => {
-  alert('⏩ 请求已放行发送！')
+function seedDemoHistory() {
+  const demo = [
+    { method: 'POST', host: 'api.example.com', path: '/api/user/login', status: 503, latency: 2150, size: '1.1 KB', injected: true,
+      reqHeaders: 'POST /api/user/login HTTP/1.1\r\nHost: api.example.com\r\nContent-Type: application/json',
+      reqRaw: '{"user":"admin","pass":"secret"}',
+      respHeaders: 'HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json',
+      respRaw: '{"code":5,"msg":"系统繁忙，请稍后重试","success":false}' },
+    { method: 'GET', host: 'api.example.com', path: '/api/order/list', status: 200, latency: 5012, size: '4.8 KB', injected: true,
+      reqHeaders: 'GET /api/order/list HTTP/1.1\r\nHost: api.example.com',
+      reqRaw: '',
+      respHeaders: 'HTTP/1.1 200 OK\r\nContent-Type: application/json',
+      respRaw: '{"code":0,"data":[{"id":101,"price":99}]}' },
+    { method: 'GET', host: 'api.example.com', path: '/api/ping', status: 200, latency: 12, size: '310 B', injected: false,
+      reqHeaders: 'GET /api/ping HTTP/1.1\r\nHost: api.example.com',
+      reqRaw: '',
+      respHeaders: 'HTTP/1.1 200 OK',
+      respRaw: '{"code":0,"msg":"pong"}' },
+    { method: 'POST', host: 'pay.example.com', path: '/api/payment/charge', status: 429, latency: 88, size: '220 B', injected: false,
+      reqHeaders: 'POST /api/payment/charge HTTP/1.1\r\nHost: pay.example.com',
+      reqRaw: '{"amount":100}',
+      respHeaders: 'HTTP/1.1 429 Too Many Requests',
+      respRaw: '{"code":429,"msg":"rate limit exceeded"}' },
+  ]
+  demo.forEach(d => pushHistoryEntry(d))
 }
 
-const dropCurrent = () => {
-  alert('🗑 请求已被手动丢弃！')
-}
+// ── Lifecycle ─────────────────────────────────────────────────────────────────
+onMounted(async () => {
+  await loadRules()
+
+  if (isElectron) {
+    // Subscribe to log stream from C proxy
+    api.onLogLine(parseLogLine)
+    api.onProxyStopped(({ code }) => {
+      proxyRunning.value = false
+      systemProxyOn.value = false
+      showToast(`代理已退出 (code: ${code})`, 'warn')
+    })
+    // Sync initial status
+    const status = await api.getProxyStatus()
+    proxyRunning.value = status.running
+  } else {
+    // Browser demo: inject fake history + log
+    seedDemoHistory()
+    logLines.value = [
+      '[INFO]  Chaos-Proxy v1.0 starting on :8888',
+      '[INFO]  Loaded 2 rules from rules.json',
+      '[PROXY] POST /api/user/login -> connected to api.example.com:80',
+      '[CHAOS] Rule matched: 模拟登录接口系统繁忙 → delay=2000ms, status=503',
+      '[PROXY] GET /api/order/list -> delay=5000ms applied',
+    ]
+  }
+})
+
+onUnmounted(() => {
+  if (isElectron) {
+    api.removeAllListeners('log:line')
+    api.removeAllListeners('proxy:stopped')
+  }
+})
 </script>
 
 <style scoped>
-.desktop-app {
+/* ─── Layout ──────────────────────────────────────────────────────────────── */
+.app {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--bg-dark);
+  background: var(--bg);
+  overflow: hidden;
 }
 
-.top-bar {
-  background: var(--header-bg);
+/* ─── Titlebar ────────────────────────────────────────────────────────────── */
+.titlebar {
+  height: 38px;
+  background: var(--bg-1);
   border-bottom: 1px solid var(--border);
-  padding: 0.6rem 1.5rem;
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
+  padding: 0 16px;
+  flex-shrink: 0;
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
+.titlebar-left { display: flex; gap: 6px; align-items: center; }
 
-.logo {
-  width: 34px;
-  height: 34px;
-  background: linear-gradient(135deg, var(--accent-orange), var(--accent-purple));
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.1rem;
-}
-
-.brand-info {
-  display: flex;
-  flex-direction: column;
-}
-
-.brand-info .title {
-  font-weight: 700;
-  font-size: 1.05rem;
-  color: #fff;
-}
-
-.brand-info .version {
-  font-size: 0.75rem;
-  color: var(--accent-cyan);
-  font-family: monospace;
-}
-
-.top-controls {
-  display: flex;
-  gap: 1rem;
-}
-
-.toggle-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  padding: 0.4rem 0.9rem;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  transition: all 0.2s;
-}
-
-.toggle-btn.active {
-  background: rgba(16, 185, 129, 0.15);
-  border-color: var(--success);
-  color: #fff;
-}
-
-.toggle-btn .dot {
-  width: 8px;
-  height: 8px;
+.wc {
+  width: 12px; height: 12px;
   border-radius: 50%;
-  background: var(--text-muted);
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s;
 }
+.wc:hover { opacity: 0.75; }
+.wc-close  { background: #ff5f57; }
+.wc-min    { background: #febc2e; }
+.wc-max    { background: #28c840; }
 
-.toggle-btn.active .dot {
-  background: var(--success);
-  box-shadow: 0 0 8px var(--success);
+.titlebar-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  letter-spacing: 0.03em;
 }
+.tb-logo { font-size: 14px; }
+.tb-version { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
 
-.interceptor-btn.active {
-  background: rgba(249, 115, 22, 0.2);
-  border-color: var(--accent-orange);
-  color: #fff;
-}
-
-.nav-tabs {
-  background: #0f1420;
+/* ─── Topbar ──────────────────────────────────────────────────────────────── */
+.topbar {
+  height: 48px;
+  background: var(--bg-1);
   border-bottom: 1px solid var(--border);
   display: flex;
-  padding: 0 1rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.topbar-left  { display: flex; align-items: center; gap: 12px; }
+.topbar-right { display: flex; align-items: center; gap: 8px; }
+
+.status-pill {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 10px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  border: 1px solid var(--border-2);
+  background: var(--bg-2);
+}
+.status-pill.status-on  { border-color: var(--green); color: var(--green); background: var(--green-dim); }
+.status-pill.status-off { color: var(--text-muted); }
+
+.status-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: currentColor;
+}
+.status-on .status-dot { box-shadow: 0 0 6px currentColor; animation: pulse 2s infinite; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+.stat-chips { display: flex; gap: 6px; }
+.stat-chip {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 2px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  min-width: 60px;
+}
+.stat-chip.chaos-chip { border-color: var(--orange-dim); }
+.chip-val { font-size: 14px; font-weight: 700; line-height: 1.2; }
+.chip-lbl { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.chaos-chip .chip-val { color: var(--orange); }
+
+.port-group {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-2);
+}
+.port-input {
+  width: 68px;
+  text-align: center;
+  padding: 4px 6px;
+  font-size: 13px;
+}
+
+.ctrl-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border-2);
+  background: var(--bg-2);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.15s;
+  cursor: pointer;
+}
+.ctrl-btn:hover  { background: var(--bg-3); border-color: var(--border-2); color: var(--text); }
+.ctrl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--text-muted);
+  transition: all 0.15s;
+}
+
+.sys-btn.ctrl-on { background: var(--green-dim); border-color: var(--green); color: var(--green); }
+.sys-btn.ctrl-on .btn-dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+.start-btn { background: var(--purple-dim); border-color: var(--purple); color: #c4b5fd; font-weight: 700; }
+.start-btn:hover { background: rgba(139,92,246,0.25); }
+.start-btn.stop-mode { background: var(--red-dim); border-color: var(--red); color: #fca5a5; }
+
+.danger-btn { border-color: var(--red-dim); color: var(--red); }
+.danger-btn:hover { background: var(--red-dim); }
+
+/* ─── Tab Nav ─────────────────────────────────────────────────────────────── */
+.tab-nav {
+  display: flex;
+  align-items: center;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  padding: 0 8px;
+  flex-shrink: 0;
 }
 
 .tab-btn {
+  display: flex; align-items: center; gap: 5px;
+  padding: 0 16px;
+  height: 38px;
   background: transparent;
   border: none;
+  border-bottom: 2px solid transparent;
   color: var(--text-muted);
-  padding: 0.75rem 1.25rem;
-  font-size: 0.88rem;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  border-bottom: 2px solid transparent;
-  transition: all 0.2s;
+  transition: all 0.15s;
+  position: relative;
 }
-
-.tab-btn:hover {
-  color: #fff;
-}
-
-.tab-btn.active {
-  color: #fff;
-  border-bottom-color: var(--accent-orange);
-  background: rgba(255, 255, 255, 0.02);
-}
+.tab-btn:hover { color: var(--text-2); }
+.tab-btn.active { color: var(--text); border-bottom-color: var(--orange); }
+.tab-icon { font-size: 13px; }
 
 .tab-badge {
-  background: rgba(255, 255, 255, 0.1);
-  padding: 0.1rem 0.4rem;
-  border-radius: 10px;
-  font-size: 0.75rem;
-  font-family: monospace;
+  background: rgba(255,255,255,0.1);
+  color: var(--text-2);
+  padding: 1px 5px;
+  border-radius: 99px;
+  font-size: 10px;
+  font-family: var(--font-mono);
 }
+.tab-badge-warn { background: var(--orange-dim); color: var(--orange); }
 
-.workspace-area {
+.tab-nav-right { margin-left: auto; }
+
+.log-toggle {
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.log-toggle.active { background: var(--bg-2); color: var(--text-2); border-color: var(--border-2); }
+
+/* ─── Workspace ───────────────────────────────────────────────────────────── */
+.workspace {
   flex: 1;
   overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
-.tab-page {
+.tab-pane {
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-.table-container {
+/* ─── Common Toolbar ──────────────────────────────────────────────────────── */
+.pane-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.toolbar-btn {
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--border-2);
+  background: var(--bg-2);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.filter-label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-muted);
+}
+.filter-input {
+  width: 200px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+/* ─── Request Table ───────────────────────────────────────────────────────── */
+.req-table-wrap {
   flex: 1;
   overflow-y: auto;
-  border-bottom: 1px solid var(--border);
+  min-height: 0;
 }
 
-.packet-table {
+.req-table {
   width: 100%;
   border-collapse: collapse;
-  text-align: left;
-  font-size: 0.85rem;
+  font-size: 12px;
 }
 
-.packet-table th {
-  background: #121824;
+.req-table th {
+  background: var(--bg-1);
   color: var(--text-muted);
-  padding: 0.6rem 1rem;
+  padding: 6px 10px;
   font-weight: 600;
-  position: sticky;
-  top: 0;
+  text-align: left;
+  position: sticky; top: 0; z-index: 1;
   border-bottom: 1px solid var(--border);
+  white-space: nowrap;
 }
 
-.packet-table td {
-  padding: 0.6rem 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  font-family: monospace;
+.req-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.035);
+  max-width: 0;
+  vertical-align: middle;
 }
 
-.packet-table tr {
+.req-table tbody tr {
   cursor: pointer;
+  transition: background 0.1s;
 }
+.req-table tbody tr:hover    { background: var(--bg-hover); }
+.req-table tbody tr.selected { background: rgba(139,92,246,0.12) !important; }
+.req-table tbody tr.chaos-row td:first-child { border-left: 2px solid var(--orange); }
 
-.packet-table tr:hover {
-  background: rgba(255, 255, 255, 0.03);
-}
+.mono  { font-family: var(--font-mono); }
+.muted { color: var(--text-muted); }
+.text-warn { color: var(--yellow); }
+.ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.packet-table tr.selected {
-  background: rgba(139, 92, 246, 0.15) !important;
-}
-
-.packet-table tr.chaos {
-  border-left: 3px solid var(--accent-orange);
-}
-
-.method-badge {
-  padding: 0.15rem 0.4rem;
-  border-radius: 4px;
+.badge-method {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10px;
   font-weight: 700;
-  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  letter-spacing: 0.05em;
+}
+.m-get    { background: var(--cyan-dim);   color: var(--cyan);   }
+.m-post   { background: var(--orange-dim); color: var(--orange); }
+.m-put    { background: var(--yellow-dim); color: var(--yellow); }
+.m-delete { background: var(--red-dim);    color: var(--red);    }
+.m-patch  { background: var(--purple-dim); color: var(--purple); }
+.m-all    { background: var(--bg-3); color: var(--text-muted); }
+
+.badge-status {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+.s-2xx { background: var(--green-dim);  color: var(--green); }
+.s-3xx { background: var(--cyan-dim);   color: var(--cyan);  }
+.s-4xx { background: var(--yellow-dim); color: var(--yellow); }
+.s-5xx { background: var(--red-dim);    color: var(--red); }
+
+.empty-row {
+  text-align: center;
+  padding: 32px !important;
+  color: var(--text-muted);
+  font-style: italic;
 }
 
-.method-badge.post { background: rgba(249, 115, 22, 0.2); color: var(--accent-orange); }
-.method-badge.get { background: rgba(6, 182, 212, 0.2); color: var(--accent-cyan); }
-
-.status-code.ok-200 { color: var(--success); }
-.status-code.err-500 { color: var(--danger); font-weight: 700; }
-
-.delay-tag {
-  color: var(--accent-orange);
-  font-weight: 600;
-}
-
-.inspector-panel {
-  height: 280px;
+/* ─── Inspector ───────────────────────────────────────────────────────────── */
+.inspector {
+  height: 240px;
   display: flex;
-  background: var(--panel-bg);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.inspector-empty {
+  height: 60px;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-style: italic;
 }
 
-.inspector-column {
+.inspector-col {
   flex: 1;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--border);
+  min-width: 0;
 }
-
-.inspector-column:last-child { border-right: none; }
-.inspector-column.width-100 { flex: none; width: 100%; }
+.inspector-col:last-child { border-right: none; }
 
 .inspector-header {
-  padding: 0.5rem 1rem;
-  background: rgba(0, 0, 0, 0.2);
-  border-bottom: 1px solid var(--border);
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  font-size: 0.85rem;
+  gap: 8px;
+  padding: 5px 10px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
   font-weight: 600;
-}
-
-.btn-action {
-  background: rgba(139, 92, 246, 0.2);
-  color: #c4b5fd;
-  border: 1px solid rgba(139, 92, 246, 0.3);
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  cursor: pointer;
-}
-
-.btn-action:hover { background: rgba(139, 92, 246, 0.4); }
-
-.chaos-flag {
-  color: var(--accent-orange);
-  font-size: 0.8rem;
-  font-weight: 700;
+  flex-shrink: 0;
 }
 
 .inspector-tabs {
   display: flex;
-  background: rgba(0, 0, 0, 0.1);
-  border-bottom: 1px solid var(--border);
+  margin-left: 4px;
 }
-
 .inspector-tabs button {
   background: transparent;
   border: none;
   color: var(--text-muted);
-  padding: 0.35rem 0.8rem;
-  font-size: 0.78rem;
+  padding: 2px 8px;
+  font-size: 11px;
   cursor: pointer;
+  border-radius: 3px;
 }
-
-.inspector-tabs button.active {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.05);
-  font-weight: 600;
-}
+.inspector-tabs button.active { background: var(--bg-2); color: var(--text); }
 
 .inspector-body {
   flex: 1;
-  padding: 0.75rem 1rem;
+  padding: 8px 12px;
   overflow: auto;
-  font-family: monospace;
-  font-size: 0.85rem;
-  color: #cbd5e1;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: #a7c4e0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.6;
+  background: var(--bg);
 }
 
-.raw-textarea {
+.chaos-badge {
+  margin-left: auto;
+  color: var(--orange);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* ─── Btn helpers ─────────────────────────────────────────────────────────── */
+.btn-sm {
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-2);
+  background: var(--bg-2);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.btn-sm:hover { background: var(--bg-3); color: var(--text); }
+
+.btn-green  { background: var(--green-dim);  border-color: var(--green);  color: var(--green); }
+.btn-red    { background: var(--red-dim);    border-color: var(--red);    color: var(--red); }
+.btn-orange { background: var(--orange-dim); border-color: var(--orange); color: var(--orange); }
+.btn-purple { background: var(--purple-dim); border-color: var(--purple); color: #c4b5fd; }
+
+/* ─── Interceptor ─────────────────────────────────────────────────────────── */
+.interceptor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.interceptor-hint { font-size: 12px; color: var(--orange); font-weight: 600; margin-left: 8px; }
+
+.interceptor-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  padding: 12px;
+  gap: 12px;
+}
+
+.interceptor-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg-1);
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  padding: 10px;
+}
+.editor-label { font-size: 11px; color: var(--text-muted); font-weight: 600; }
+
+.raw-editor {
+  flex: 1;
   width: 100%;
-  height: 100%;
+  resize: none;
   background: transparent;
   border: none;
   color: #a7f3d0;
-  font-family: monospace;
-  font-size: 0.9rem;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.7;
   outline: none;
-  resize: none;
+  padding: 0;
 }
 
-.interceptor-bar, .repeater-bar {
-  padding: 0.75rem 1.5rem;
-  background: rgba(0, 0, 0, 0.3);
+/* ─── Rules ───────────────────────────────────────────────────────────────── */
+.rules-pane {
+  flex-direction: row !important;
+}
+
+.rules-list {
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--bg-1);
+}
+
+.rules-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.rules-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rule-card {
+  padding: 10px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.rule-card:hover { border-color: var(--border-2); background: var(--bg-3); }
+.rule-card.rule-selected { border-color: var(--purple); background: var(--purple-dim); }
+.rule-card.rule-disabled { opacity: 0.45; }
+
+.rule-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.rule-name { font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+.rule-url  { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); margin-bottom: 6px; display: flex; align-items: center; gap: 4px; }
+.method-tiny { font-size: 10px; font-weight: 700; padding: 0 3px; border-radius: 2px; }
+
+.rule-badges { display: flex; gap: 4px; flex-wrap: wrap; }
+.rbadge { padding: 1px 5px; border-radius: 3px; font-size: 10px; font-weight: 700; font-family: var(--font-mono); }
+.rbadge-orange { background: var(--orange-dim); color: var(--orange); }
+.rbadge-red    { background: var(--red-dim);    color: var(--red);    }
+.rbadge-purple { background: var(--purple-dim); color: var(--purple); }
+.rbadge-yellow { background: var(--yellow-dim); color: var(--yellow); }
+
+.rules-empty { padding: 24px; text-align: center; color: var(--text-muted); font-size: 12px; }
+
+/* Toggle Switch */
+.toggle-switch { display: flex; align-items: center; cursor: pointer; }
+.toggle-switch input { display: none; }
+.toggle-track {
+  width: 30px; height: 16px;
+  background: var(--bg-3);
+  border-radius: 99px;
+  position: relative;
+  border: 1px solid var(--border-2);
+  transition: all 0.2s;
+}
+.toggle-track::after {
+  content: '';
+  position: absolute;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  top: 2px; left: 2px;
+  transition: all 0.2s;
+}
+.toggle-switch input:checked + .toggle-track { background: var(--green-dim); border-color: var(--green); }
+.toggle-switch input:checked + .toggle-track::after { left: 16px; background: var(--green); }
+
+/* ─── Rule Editor ─────────────────────────────────────────────────────────── */
+.rule-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.rule-editor-empty {
+  align-items: center;
+  justify-content: center;
+}
+.empty-hint { text-align: center; color: var(--text-muted); }
+.empty-icon { font-size: 36px; margin-bottom: 10px; }
+
+.editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.editor-title { font-size: 13px; font-weight: 700; }
+.editor-actions { display: flex; gap: 6px; }
+
+.editor-form {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.form-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0 2px;
+}
+
+.form-row { display: flex; flex-direction: column; gap: 4px; }
+.form-row.two-col { flex-direction: row; gap: 10px; }
+.form-row.two-col > * { flex: 1; }
+
+.form-label { font-size: 11px; color: var(--text-muted); font-weight: 600; margin-bottom: 2px; }
+.form-input { width: 100%; }
+.form-unit  { font-size: 12px; color: var(--text-muted); }
+.form-hint  { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+
+/* Inject block */
+.inject-block {
+  padding: 10px 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: border-color 0.15s;
+}
+.inject-block.active { border-color: var(--border-2); }
+
+.inject-header {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  justify-content: space-between;
 }
-
-.btn-forward {
-  background: var(--success);
-  color: #fff;
-  border: none;
-  padding: 0.5rem 1.2rem;
-  border-radius: 6px;
-  font-weight: 700;
+.inject-toggle {
+  display: flex; align-items: center; gap: 8px;
   cursor: pointer;
 }
+.inject-toggle input[type=checkbox] { accent-color: var(--purple); width: 14px; height: 14px; }
+.inject-name { font-size: 12px; font-weight: 600; }
+.inject-val  { font-family: var(--font-mono); color: var(--orange); font-size: 12px; font-weight: 700; }
+.inject-warn { font-size: 11px; color: var(--yellow); }
 
-.btn-drop {
-  background: var(--danger);
-  color: #fff;
-  border: none;
-  padding: 0.5rem 1.2rem;
-  border-radius: 6px;
-  font-weight: 700;
+.inject-body {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.inject-body.body-edit { flex-direction: column; align-items: stretch; }
+
+.delay-slider {
+  flex: 1;
+  height: 4px;
+  accent-color: var(--orange);
   cursor: pointer;
+  background: transparent;
+  border: none;
+}
+.delay-number { width: 80px; text-align: center; }
+
+/* ─── Repeater ────────────────────────────────────────────────────────────── */
+.repeater-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.target-group { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
+.target-input { width: 260px; }
+
+.repeater-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  gap: 1px;
+  background: var(--border);
 }
 
-.btn-primary {
-  background: var(--accent-purple);
-  color: #fff;
-  border: none;
-  padding: 0.5rem 1.2rem;
-  border-radius: 6px;
-  font-weight: 700;
-  cursor: pointer;
+.repeater-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  min-width: 0;
 }
 
-.status-tip {
-  font-size: 0.85rem;
-  color: var(--accent-orange);
+.repeater-col-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
   font-weight: 600;
+  flex-shrink: 0;
 }
 
-.flex-1 { flex: 1; }
+.repeater-col .raw-editor {
+  flex: 1;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: #a7f3d0;
+  line-height: 1.7;
+}
+.repeater-col pre.raw-editor { color: #a7c4e0; }
+
+/* ─── Log Panel ───────────────────────────────────────────────────────────── */
+.log-panel {
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  transition: height 0.2s ease;
+  height: 160px;
+  flex-shrink: 0;
+  background: var(--bg-1);
+}
+.log-panel.collapsed { height: 0; overflow: hidden; border-top: none; }
+
+.log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.log-body { flex: 1; overflow-y: auto; padding: 4px 0; }
+.log-line {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.log-info  { color: var(--text-2); }
+.log-chaos { color: var(--orange); }
+.log-warn  { color: var(--yellow); }
+.log-err   { color: var(--red); }
+.log-empty { padding: 10px 14px; color: var(--text-muted); font-size: 11px; font-style: italic; }
+
+/* ─── Toast ───────────────────────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 9px 20px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  z-index: 9999;
+  pointer-events: none;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+}
+.toast-success { background: var(--green-dim);  color: var(--green);  border: 1px solid var(--green);  }
+.toast-warn    { background: var(--yellow-dim); color: var(--yellow); border: 1px solid var(--yellow); }
+.toast-error   { background: var(--red-dim);    color: var(--red);    border: 1px solid var(--red);    }
+.toast-info    { background: var(--bg-3); color: var(--text); border: 1px solid var(--border-2); }
+
+.toast-fade-enter-active, .toast-fade-leave-active { transition: all 0.25s ease; }
+.toast-fade-enter-from, .toast-fade-leave-to { opacity: 0; transform: translateX(-50%) translateY(10px); }
+
+/* ─── History pane specific ───────────────────────────────────────────────── */
+.history-pane { overflow: hidden; }
 </style>

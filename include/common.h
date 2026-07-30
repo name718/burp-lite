@@ -63,7 +63,8 @@ typedef enum {
     CONN_STATE_INJECT_CHAOS,       /* 状态 6：读取完毕，正在执行故障注入 (篡改 Body/修改状态码) */
     CONN_STATE_DELAY_WAIT,         /* 状态 7：延迟注入中，正在等待非阻塞定时器到期 */
     CONN_STATE_WRITE_CLIENT,       /* 状态 8：正在将最终响应数据写回给浏览器/客户端 */
-    CONN_STATE_CLOSED              /* 状态 9：处理完成，准备关闭并回收 Socket */
+    CONN_STATE_TUNNEL,             /* 状态 9：HTTPS CONNECT 隧道——双向透传原始字节 */
+    CONN_STATE_CLOSED              /* 状态 10：处理完成，准备关闭并回收 Socket */
 } conn_state_t;
 
 /**
@@ -86,6 +87,7 @@ typedef struct conn {
     char resp_buf[BUFFER_SIZE];    /* 存放准备发回给客户端的响应字符 */
     size_t resp_len;               /* 响应数据的总字节数 */
     size_t resp_sent;              /* 已发回给客户端的字节数 */
+    int    resp_status;            /* upstream 响应的 HTTP 状态码（日志用） */
     
     /* 从 HTTP 解析出的元数据 */
     char method[16];               /* 请求方法: "GET", "POST" 等 */

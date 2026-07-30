@@ -357,11 +357,14 @@ static const char *WEB_UI_HTML =
 "</body>\n"
 "</html>\n";
 
-bool handle_web_ui_request(conn_t *conn) {
+bool handle_web_ui_request(conn_t *conn, int listen_port) {
     if (!conn) return false;
 
+    /* 只有目标端口是代理监听端口，才可能是访问 Web UI 的请求 */
+    if (conn->port != listen_port) return false;
+
     /* 1. 检查请求是否为 Web UI HTML 界面 (/ 或 /ui 或 /ui/) */
-    if (strcmp(conn->path, "/") == 0 || strcmp(conn->path, "/ui") == 0 || strcmp(conn->path, "/ui/") == 0) {
+    if (strcmp(conn->path, "/ui") == 0 || strcmp(conn->path, "/ui/") == 0 || strcmp(conn->path, "/") == 0) {
         size_t body_len = strlen(WEB_UI_HTML);
         snprintf(conn->resp_buf, sizeof(conn->resp_buf),
                  "HTTP/1.1 200 OK\r\n"

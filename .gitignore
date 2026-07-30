@@ -16,3 +16,4 @@ bin/
 # Core dumps & logs
 *.log
 core
+desktop/node_modules/

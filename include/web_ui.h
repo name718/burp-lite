@@ -9,9 +9,13 @@
 #include "common.h"
 
 /**
- * @brief 检查请求是否为 Web UI 页面或 REST API
- * @return true 表示已被 Web UI 拦截处理, false 表示正常代理请求
+ * @brief 尝试处理当前连接是否为对 Web UI 或 API 的请求
+ * 
+ * @param conn 当前连接对象
+ * @param listen_port 代理服务器的监听端口
+ * @return true 表示已被 Web UI 拦截处理完毕，不再走后续代理转发流程
+ * @return false 表示非 Web UI 请求，需继续走代理转发逻辑
  */
-bool handle_web_ui_request(conn_t *conn);
+bool handle_web_ui_request(conn_t *conn, int listen_port);
 
 #endif /* CHAOS_WEB_UI_H */
