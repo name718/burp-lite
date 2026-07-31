@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "vanilla-jsoneditor": "^3.13.0",
     "vue": "^3.4.0",
     "vue-json-pretty": "^2.6.0"
   },

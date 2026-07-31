@@ -33,6 +33,10 @@
           <span class="icon">📦</span>
           <span class="label">Projects</span>
         </button>
+        <button class="sidebar-btn" :class="{active: currentApp === 'tools'}" @click="currentApp = 'tools'" title="小工具 (Dev Tools)">
+          <span class="icon">🛠️</span>
+          <span class="label">Tools</span>
+        </button>
       </aside>
 
       <!-- 右侧应用容器 -->
@@ -589,6 +593,98 @@
           </div>
         </div>
       </section>
+      
+      <!-- ════════════ F. API Tester ════════════ -->
+      <section v-show="activeTab === 'api-tester'" class="tab-pane api-tester-pane" style="display: flex; flex-direction: column; flex: 1; padding: 16px; gap: 16px; overflow: hidden; background: var(--bg-0);">
+        <div style="font-size: 16px; font-weight: bold; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
+          🚀 API 发包器 (API Tester)
+        </div>
+        <!-- Top Row: Method, URL, Send -->
+        <div style="display: flex; gap: 8px;">
+          <select v-model="reqMethod" class="filter-input" style="width: 100px; font-weight: bold; background: var(--bg-1);">
+            <option>GET</option>
+            <option>POST</option>
+            <option>PUT</option>
+            <option>DELETE</option>
+            <option>PATCH</option>
+          </select>
+          <input v-model="reqUrl" class="filter-input" style="flex: 1; font-family: var(--font-mono);" placeholder="Enter request URL (e.g. https://api.github.com/)" />
+          <button class="toolbar-btn" style="background: var(--bg-3);" @click="showCurlImport = !showCurlImport">
+            📥 导入 cURL
+          </button>
+          <button class="toolbar-btn" style="background: var(--purple); color: white; padding: 0 24px;" @click="sendStructuredRequest" :disabled="curlLoading">
+            {{ curlLoading ? '发送中...' : '发送 (Send)' }}
+          </button>
+        </div>
+        
+        <!-- Toggleable Import cURL area -->
+        <div v-if="showCurlImport" style="background: var(--bg-1); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+          <div style="font-size: 13px; font-weight: bold; color: var(--text-muted);">粘贴 cURL 字符串：</div>
+          <textarea v-model="curlImportText" class="raw-editor" style="height: 100px; resize: none; font-family: var(--font-mono); padding: 8px;" placeholder="curl 'https://api.github.com' -H '...'"></textarea>
+          <div style="display: flex; justify-content: flex-end; gap: 8px;">
+            <button class="toolbar-btn" @click="showCurlImport = false">取消</button>
+            <button class="toolbar-btn" style="background: var(--purple); color: white; border: none; padding: 4px 12px;" @click="confirmImportCurl">解析并填入表单</button>
+          </div>
+        </div>
+        
+        <!-- Tabs & Request Body/Headers -->
+        <div style="display: flex; flex-direction: column; background: var(--bg-1); border: 1px solid var(--border); border-radius: 8px; flex: 1; overflow: hidden; min-height: 200px;">
+          <div style="display: flex; gap: 16px; padding: 0 16px; border-bottom: 1px solid var(--border); background: var(--bg-2);">
+            <div class="tab-btn" :class="{active: reqActiveTab === 'Headers'}" @click="reqActiveTab = 'Headers'" style="padding: 12px 0; cursor: pointer; font-size: 13px; font-weight: bold; position: relative;">
+              Headers <span style="background: var(--bg-3); padding: 2px 6px; border-radius: 12px; font-size: 10px; margin-left: 4px;">{{ reqHeaders.filter(h => h.active && h.key).length }}</span>
+              <div v-if="reqActiveTab === 'Headers'" style="position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: var(--purple);"></div>
+            </div>
+            <div class="tab-btn" :class="{active: reqActiveTab === 'Body'}" @click="reqActiveTab = 'Body'" style="padding: 12px 0; cursor: pointer; font-size: 13px; font-weight: bold; position: relative;">
+              Body
+              <div v-if="reqActiveTab === 'Body'" style="position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: var(--purple);"></div>
+            </div>
+          </div>
+          
+          <!-- Headers Editor -->
+          <div v-if="reqActiveTab === 'Headers'" style="flex: 1; overflow-y: auto; padding: 12px;">
+            <div style="display: grid; grid-template-columns: 32px 1fr 1fr 32px; gap: 8px; margin-bottom: 8px; color: var(--text-muted); font-size: 12px; padding-left: 8px;">
+              <div></div>
+              <div>参数名 (Key)</div>
+              <div>参数值 (Value)</div>
+              <div></div>
+            </div>
+            <div v-for="(h, i) in reqHeaders" :key="i" style="display: grid; grid-template-columns: 32px 1fr 1fr 32px; gap: 8px; align-items: center; margin-bottom: 8px;">
+              <input type="checkbox" v-model="h.active" style="justify-self: center;" />
+              <input v-model="h.key" class="filter-input" placeholder="Key" style="font-family: var(--font-mono); font-size: 12px;" @input="ensureLastEmptyHeader" />
+              <input v-model="h.value" class="filter-input" placeholder="Value" style="font-family: var(--font-mono); font-size: 12px;" />
+              <button class="danger-btn" style="padding: 4px;" @click="removeHeader(i)" v-if="reqHeaders.length > 1">🗑️</button>
+            </div>
+          </div>
+          
+          <!-- Body Editor -->
+          <div v-if="reqActiveTab === 'Body'" style="flex: 1; display: flex; padding: 12px;">
+            <textarea v-model="reqBody" class="raw-editor" style="flex: 1; resize: none; font-family: var(--font-mono);" placeholder="Raw request body (JSON, text, etc.)"></textarea>
+          </div>
+        </div>
+        
+        <!-- Response Section -->
+        <div style="display: flex; flex-direction: column; flex: 1; background: var(--bg-1); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; min-height: 200px;">
+          <div style="display: flex; gap: 16px; padding: 0 16px; border-bottom: 1px solid var(--border); background: var(--bg-2); justify-content: space-between;">
+            <div style="display: flex; gap: 16px;">
+              <div class="tab-btn" :class="{active: respActiveTab === 'Body'}" @click="respActiveTab = 'Body'" style="padding: 12px 0; cursor: pointer; font-size: 13px; font-weight: bold; position: relative;">
+                Body
+                <div v-if="respActiveTab === 'Body'" style="position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: var(--green);"></div>
+              </div>
+              <div class="tab-btn" :class="{active: respActiveTab === 'Headers'}" @click="respActiveTab = 'Headers'" style="padding: 12px 0; cursor: pointer; font-size: 13px; font-weight: bold; position: relative;">
+                Headers
+                <div v-if="respActiveTab === 'Headers'" style="position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: var(--green);"></div>
+              </div>
+            </div>
+            <div style="padding: 12px 0; font-size: 13px; font-weight: bold; color: var(--green);" v-if="respStatus">
+              {{ respStatus }}
+            </div>
+          </div>
+          <div style="flex: 1; display: flex; overflow: hidden;">
+            <textarea v-if="respActiveTab === 'Body'" v-model="respBodyFormatted" class="raw-editor" style="flex: 1; resize: none; background: #000; color: var(--green); font-family: var(--font-mono); padding: 12px; border: none; overflow-y: auto;" readonly placeholder="点击发送获取返回结果..."></textarea>
+            <textarea v-if="respActiveTab === 'Headers'" v-model="respHeadersString" class="raw-editor" style="flex: 1; resize: none; background: #000; color: var(--text-muted); font-family: var(--font-mono); padding: 12px; border: none; overflow-y: auto;" readonly></textarea>
+          </div>
+        </div>
+      </section>
     </div> <!-- end workspace -->
     </div> <!-- end Proxy App -->
 
@@ -717,6 +813,29 @@
       </div>
     </div>
 
+    <!-- ======================= Dev Tools App ======================= -->
+    <div class="sub-app tools-app" v-show="currentApp === 'tools'">
+      <div class="pane-toolbar" style="padding: 12px 20px; display: flex; gap: 16px; align-items: center;">
+        <h2 style="margin: 0; font-size: 16px; color: #fff;">🛠️ 开发者小工具 (Dev Tools)</h2>
+        <div style="width: 1px; height: 16px; background: var(--border);"></div>
+        <div style="display: flex; gap: 8px;">
+          <button class="toolbar-btn" style="background: var(--purple); color: white; font-weight: bold; padding: 4px 12px; border: 1px solid var(--border);">🌲 JSON 美化工具</button>
+        </div>
+      </div>
+
+      
+      <!-- View 2: JSON Beautifier -->
+      <div v-show="toolsActiveView === 'json'" style="display: flex; flex: 1; overflow: hidden; padding: 16px; gap: 16px;">
+        <div style="flex: 1; display: flex; flex-direction: column; background: var(--bg-1); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; position: relative;">
+          <div style="padding: 12px; background: var(--bg-2); border-bottom: 1px solid var(--border); font-size: 13px; font-weight: bold; color: var(--green); display: flex; justify-content: space-between;">
+            <span>🌲 高级 JSON 编辑与检索 (支持原生 Cmd+F, 自动格式化, 展开折叠)</span>
+          </div>
+          <div ref="jsonEditorContainer" class="jse-theme-dark" style="flex: 1; overflow: hidden; --jse-theme-color: #6366f1; --jse-theme-color-highlight: #4f46e5;"></div>
+        </div>
+      </div>
+
+    </div>
+
     </div> <!-- end app-content -->
     </div> <!-- end app-body -->
 
@@ -747,6 +866,8 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import VueJsonPretty from 'vue-json-pretty'
 import 'vue-json-pretty/lib/styles.css'
+import { JSONEditor } from 'vanilla-jsoneditor'
+import 'vanilla-jsoneditor/themes/jse-theme-dark.css'
 
 // ── Electron API bridge ───────────────────────────────────────────────────────
 const isElectron = typeof window !== 'undefined' && !!window.electronAPI
@@ -771,6 +892,7 @@ const api = isElectron ? window.electronAPI : {
   stopProject: async () => ({ ok: true }),
   openEditor: async () => ({ ok: true }),
   openChrome: async () => ({ ok: true }),
+  sendCurl: async () => ({ ok: true }),
   onProjectLog: () => {},
   onProjectReady: () => {},
   onProjectStopped: () => {}
@@ -936,6 +1058,179 @@ const openInChrome = async (url) => {
   }
 }
 
+const toolsActiveView = ref('json')
+
+// API Tester (Postman-like)
+const reqMethod = ref('GET')
+const reqUrl = ref('')
+const reqHeaders = ref([{ key: '', value: '', active: true }])
+const reqBody = ref('')
+const reqActiveTab = ref('Headers')
+const curlLoading = ref(false)
+
+const respActiveTab = ref('Body')
+const respBodyString = ref('')
+const respHeadersString = ref('')
+const respStatus = ref('')
+const respBodyFormatted = computed(() => {
+  if (!respBodyString.value) return ''
+  try {
+    return JSON.stringify(JSON.parse(respBodyString.value), null, 2)
+  } catch (e) {
+    return respBodyString.value
+  }
+})
+
+const ensureLastEmptyHeader = () => {
+  const last = reqHeaders.value[reqHeaders.value.length - 1]
+  if (last.key || last.value) {
+    reqHeaders.value.push({ key: '', value: '', active: true })
+  }
+}
+
+const removeHeader = (i) => {
+  reqHeaders.value.splice(i, 1)
+  if (reqHeaders.value.length === 0) {
+    reqHeaders.value.push({ key: '', value: '', active: true })
+  }
+}
+
+const showCurlImport = ref(false)
+const curlImportText = ref('')
+
+const confirmImportCurl = () => {
+  if (!curlImportText.value) return
+  
+  let curlStr = curlImportText.value.trim()
+  if (!curlStr.startsWith('curl')) {
+    showToast('无效的 cURL 格式，需以 curl 开头', 'error')
+    return
+  }
+  
+  // parse URL
+  let urlMatch = curlStr.match(/curl\s+['"]?([^'"\s]+)/)
+  if (!urlMatch) urlMatch = curlStr.match(/['"](http[^'"]+)['"]/)
+  if (urlMatch) reqUrl.value = urlMatch[1]
+  
+  // parse headers
+  const headers = []
+  const headerRegex = /-H\s+['"]([^:]+):\s*(.*?)['"]/g
+  let match
+  while ((match = headerRegex.exec(curlStr)) !== null) {
+    headers.push({ key: match[1].trim(), value: match[2].trim(), active: true })
+  }
+  headers.push({ key: '', value: '', active: true })
+  reqHeaders.value = headers
+  
+  // parse body & method
+  const dataRegex = /--data-raw\s+['"]([\s\S]*?)['"]/
+  const dMatch = curlStr.match(dataRegex)
+  if (dMatch) {
+    reqBody.value = dMatch[1]
+    reqMethod.value = 'POST'
+  } else {
+    const dRegex2 = /-d\s+['"]([\s\S]*?)['"]/
+    const dMatch2 = curlStr.match(dRegex2)
+    if (dMatch2) {
+      reqBody.value = dMatch2[1]
+      reqMethod.value = 'POST'
+    } else {
+      reqBody.value = ''
+      reqMethod.value = 'GET'
+    }
+  }
+  
+  const methodRegex = /-X\s+([A-Z]+)/
+  const mMatch = curlStr.match(methodRegex)
+  if (mMatch) reqMethod.value = mMatch[1]
+  
+  showCurlImport.value = false
+  curlImportText.value = ''
+  showToast('cURL 导入成功！已自动填入表单', 'success')
+}
+
+const sendStructuredRequest = async () => {
+  if (!reqUrl.value) {
+    showToast('请输入请求 URL', 'error')
+    return
+  }
+  
+  curlLoading.value = true
+  respBodyString.value = '请求发送中...'
+  respHeadersString.value = ''
+  respStatus.value = 'PENDING'
+  respActiveTab.value = 'Body'
+  
+  // Build curl command
+  let cmd = `curl -is -X ${reqMethod.value} '${reqUrl.value}'`
+  reqHeaders.value.forEach(h => {
+    if (h.active && h.key.trim()) {
+      cmd += ` -H '${h.key}: ${h.value.replace(/'/g, "'\\''")}'`
+    }
+  })
+  if (reqBody.value && ['POST', 'PUT', 'PATCH'].includes(reqMethod.value)) {
+    cmd += ` --data-raw '${reqBody.value.replace(/'/g, "'\\''")}'`
+  }
+  
+  try {
+    const res = await api.sendCurl(cmd)
+    if (res.ok) {
+      // Split headers and body
+      const parts = res.output.split(/\r?\n\r?\n/)
+      if (parts.length > 1) {
+        respHeadersString.value = parts[0]
+        respBodyString.value = parts.slice(1).join('\n\n')
+        const firstLine = respHeadersString.value.split('\n')[0]
+        respStatus.value = firstLine
+      } else {
+        respHeadersString.value = ''
+        respBodyString.value = res.output
+        respStatus.value = 'OK'
+      }
+    } else {
+      respHeadersString.value = ''
+      respBodyString.value = `请求失败:\n${res.msg}\n\n${res.output || ''}`
+      respStatus.value = 'ERROR'
+    }
+  } catch (err) {
+    respHeadersString.value = ''
+    respBodyString.value = `发生异常:\n${err.message}`
+    respStatus.value = 'ERROR'
+  } finally {
+    curlLoading.value = false
+  }
+}
+
+// JSON Beautifier Tool (using vanilla-jsoneditor)
+const jsonEditorContainer = ref(null)
+let jsonEditorInstance = null
+
+onMounted(() => {
+  if (jsonEditorContainer.value) {
+    jsonEditorInstance = new JSONEditor({
+      target: jsonEditorContainer.value,
+      props: {
+        content: {
+          text: '{\n  "greeting": "Hello, Chaos DevBox!",\n  "features": ["Search", "Highlight", "Format", "Collapse"]\n}'
+        },
+        mode: 'tree',
+        mainMenuBar: true,
+        navigationBar: true,
+        statusBar: true,
+        onChange: (updatedContent) => {
+          // You can handle updates here if needed
+        }
+      }
+    })
+  }
+})
+
+onUnmounted(() => {
+  if (jsonEditorInstance) {
+    jsonEditorInstance.destroy()
+  }
+})
+
 // Interceptor
 const interceptedItems= ref([])
 const activeInterceptItem = computed(() => interceptedItems.value[0] || null)
@@ -980,6 +1275,7 @@ const tabs = [
   { id: 'interceptor', icon: '🛑', label: 'Interceptor'  },
   { id: 'rules',       icon: '💥', label: 'Chaos Rules'  },
   { id: 'repeater',    icon: '🔄', label: 'Repeater'     },
+  { id: 'api-tester',  icon: '🚀', label: 'API 发包器'    },
   { id: 'settings',    icon: '⚙️', label: 'Settings'     },
 ]
 

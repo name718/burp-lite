@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── Tools ──────────────────────────────────────────────────────────────────
   getPorts: () => ipcRenderer.invoke('tool:getPorts'),
   killPort: (pid) => ipcRenderer.invoke('tool:killPort', pid),
+  sendCurl: (cmd) => ipcRenderer.invoke('tool:sendCurl', cmd),
 
   // ── Projects ───────────────────────────────────────────────────────────────
   selectProjectDir: () => ipcRenderer.invoke('project:selectDir'),

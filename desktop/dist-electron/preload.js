@@ -27,6 +27,23 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   // ── Tools ──────────────────────────────────────────────────────────────────
   getPorts: () => electron.ipcRenderer.invoke("tool:getPorts"),
   killPort: (pid) => electron.ipcRenderer.invoke("tool:killPort", pid),
+  sendCurl: (cmd) => electron.ipcRenderer.invoke("tool:sendCurl", cmd),
+  // ── Projects ───────────────────────────────────────────────────────────────
+  selectProjectDir: () => electron.ipcRenderer.invoke("project:selectDir"),
+  scanProjects: (dir) => electron.ipcRenderer.invoke("project:scan", dir),
+  startProject: (path, script) => electron.ipcRenderer.invoke("project:start", path, script),
+  stopProject: (path) => electron.ipcRenderer.invoke("project:stop", path),
+  openEditor: (path, editor) => electron.ipcRenderer.invoke("project:openEditor", path, editor),
+  openChrome: (url) => electron.ipcRenderer.invoke("project:openBrowser", url),
+  onProjectLog: (cb) => {
+    electron.ipcRenderer.on("project:log", (_event, data) => cb(data));
+  },
+  onProjectReady: (cb) => {
+    electron.ipcRenderer.on("project:ready", (_event, data) => cb(data));
+  },
+  onProjectStopped: (cb) => {
+    electron.ipcRenderer.on("project:stopped", (_event, data) => cb(data));
+  },
   // ── Events (main → renderer) ───────────────────────────────────────────────
   onLogLine: (cb) => {
     electron.ipcRenderer.on("log:line", (_event, line) => cb(line));

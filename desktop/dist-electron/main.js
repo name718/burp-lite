@@ -276,6 +276,130 @@ electron.ipcMain.handle("tool:killPort", async (_event, pid) => {
     return { ok: false, msg: err.message };
   }
 });
+const projectProcesses = /* @__PURE__ */ new Map();
+electron.ipcMain.handle("project:selectDir", async () => {
+  const { canceled, filePaths } = await electron.dialog.showOpenDialog(mainWindow, {
+    properties: ["openDirectory"]
+  });
+  if (canceled || filePaths.length === 0) return { ok: false };
+  return { ok: true, path: filePaths[0] };
+});
+electron.ipcMain.handle("project:scan", async (_event, rootDir) => {
+  try {
+    if (!fs.existsSync(rootDir)) return { ok: false, msg: "Directory not found" };
+    const projects = [];
+    const items = fs.readdirSync(rootDir);
+    for (const item of items) {
+      if (item === "node_modules" || item.startsWith(".")) continue;
+      const itemPath = path.join(rootDir, item);
+      if (fs.statSync(itemPath).isDirectory()) {
+        const pkgPath = path.join(itemPath, "package.json");
+        if (fs.existsSync(pkgPath)) {
+          try {
+            const pkgData = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+            const scripts = pkgData.scripts || {};
+            let script = null;
+            if (scripts.dev) script = "dev";
+            else if (scripts.serve) script = "serve";
+            else if (scripts.start) script = "start";
+            projects.push({
+              name: pkgData.name || item,
+              path: itemPath,
+              script,
+              hasScripts: !!script
+            });
+          } catch (e) {
+          }
+        }
+      }
+    }
+    return { ok: true, projects };
+  } catch (err) {
+    return { ok: false, msg: err.message };
+  }
+});
+electron.ipcMain.handle("project:start", (_event, projectPath, script) => {
+  if (projectProcesses.has(projectPath)) {
+    return { ok: false, msg: "Project is already running" };
+  }
+  try {
+    const child = child_process.spawn("npm", ["run", script], {
+      cwd: projectPath,
+      detached: true,
+      stdio: "pipe"
+    });
+    const onData = (data) => {
+      const text = data.toString();
+      mainWindow == null ? void 0 : mainWindow.webContents.send("project:log", { path: projectPath, text });
+      const regex = /http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|[\d\.]+):(\d+)(\/[^\s\x1b]*)?/gi;
+      const matches = [...text.matchAll(regex)];
+      if (matches.length > 0) {
+        const urls = matches.map((m) => m[0]);
+        mainWindow == null ? void 0 : mainWindow.webContents.send("project:ready", { path: projectPath, urls });
+      }
+    };
+    child.stdout.on("data", onData);
+    child.stderr.on("data", onData);
+    child.on("close", (code) => {
+      projectProcesses.delete(projectPath);
+      mainWindow == null ? void 0 : mainWindow.webContents.send("project:stopped", { path: projectPath, code });
+    });
+    child.on("error", (err) => {
+      projectProcesses.delete(projectPath);
+      mainWindow == null ? void 0 : mainWindow.webContents.send("project:stopped", { path: projectPath, error: err.message });
+    });
+    projectProcesses.set(projectPath, child);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, msg: err.message };
+  }
+});
+electron.ipcMain.handle("project:stop", (_event, projectPath) => {
+  const child = projectProcesses.get(projectPath);
+  if (!child) return { ok: false, msg: "Process not found" };
+  try {
+    if (child.pid) {
+      process.kill(-child.pid);
+    }
+    projectProcesses.delete(projectPath);
+    return { ok: true };
+  } catch (err) {
+    projectProcesses.delete(projectPath);
+    return { ok: false, msg: err.message };
+  }
+});
+electron.ipcMain.handle("project:openEditor", async (_event, projectPath, editor) => {
+  try {
+    child_process.execSync(`${editor} "${projectPath}"`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, msg: err.message };
+  }
+});
+electron.ipcMain.handle("project:openBrowser", async (_event, url2) => {
+  try {
+    child_process.execSync(`open -a "Google Chrome" "${url2}"`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, msg: err.message };
+  }
+});
+electron.ipcMain.handle("tool:sendCurl", async (_event, curlCmd) => {
+  var _a;
+  try {
+    let cmd = curlCmd.trim();
+    if (!cmd.toLowerCase().startsWith("curl")) {
+      return { ok: false, msg: "Not a curl command" };
+    }
+    if (!cmd.includes(" -i") && !cmd.includes(" -is") && !cmd.includes(" -si")) {
+      cmd = cmd.replace(/^curl(\.exe)? /i, "curl -is ");
+    }
+    const out = child_process.execSync(cmd, { encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 });
+    return { ok: true, output: out };
+  } catch (err) {
+    return { ok: false, msg: err.message, output: ((_a = err.stdout) == null ? void 0 : _a.toString()) || "" };
+  }
+});
 electron.app.whenReady().then(createWindow);
 electron.app.on("window-all-closed", () => {
   if (proxyProcess) proxyProcess.kill("SIGTERM");

@@ -474,6 +474,27 @@ ipcMain.handle('project:openBrowser', async (_event, url) => {
   }
 })
 
+// ─── IPC: Dev Tools ───────────────────────────────────────────────────────────
+ipcMain.handle('tool:sendCurl', async (_event, curlCmd) => {
+  try {
+    let cmd = curlCmd.trim()
+    if (!cmd.toLowerCase().startsWith('curl')) {
+      return { ok: false, msg: 'Not a curl command' }
+    }
+    // inject -i to include headers, -s for silent progress
+    if (!cmd.includes(' -i') && !cmd.includes(' -is') && !cmd.includes(' -si')) {
+      cmd = cmd.replace(/^curl(\.exe)? /i, 'curl -is ')
+    }
+    
+    // Using execSync because curl commands from browser often contain complex quotes and escapes
+    // Max buffer 10MB just in case the response is huge
+    const out = execSync(cmd, { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 })
+    return { ok: true, output: out }
+  } catch (err) {
+    return { ok: false, msg: err.message, output: err.stdout?.toString() || '' }
+  }
+})
+
 // ─── App Lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(createWindow)
 
