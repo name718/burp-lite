@@ -12,9 +12,9 @@ let proxyProcess = null;
 const isDev = process.env.VITE_DEV_SERVER_URL !== void 0;
 function getBinaryPath() {
   if (isDev) {
-    return path.join(__dirname$1, "../../build/bin/chaos-proxy");
+    return path.join(__dirname$1, "../../build/bin/burp-lite");
   }
-  return path.join(process.resourcesPath, "bin", "chaos-proxy");
+  return path.join(process.resourcesPath, "bin", "burp-lite");
 }
 function getRulesPath() {
   if (isDev) {
@@ -180,8 +180,27 @@ electron.ipcMain.handle("request:sendRaw", (_event, port, rawRequest) => {
     const client = new net.Socket();
     let responseData = Buffer.alloc(0);
     let startTime = Date.now();
+    let normalizedReq = rawRequest.replace(/\r\n/g, "\n").replace(/\n/g, "\r\n");
+    if (!normalizedReq.includes("\r\n\r\n")) {
+      if (normalizedReq.endsWith("\r\n")) {
+        normalizedReq += "\r\n";
+      } else {
+        normalizedReq += "\r\n\r\n";
+      }
+    }
+    let finalRequest = normalizedReq;
+    const parts = normalizedReq.split("\r\n\r\n");
+    if (parts.length >= 2) {
+      const headStr = parts[0];
+      const bodyStr = parts.slice(1).join("\r\n\r\n");
+      if (/Content-Length:\s*\d+/i.test(headStr)) {
+        const actualLen = Buffer.byteLength(bodyStr, "utf8");
+        const newHead = headStr.replace(/Content-Length:\s*\d+/i, `Content-Length: ${actualLen}`);
+        finalRequest = newHead + "\r\n\r\n" + bodyStr;
+      }
+    }
     client.connect(port, "127.0.0.1", () => {
-      client.write(rawRequest);
+      client.write(finalRequest);
     });
     client.on("data", (data) => {
       responseData = Buffer.concat([responseData, data]);

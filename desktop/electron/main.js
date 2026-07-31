@@ -217,13 +217,24 @@ ipcMain.handle('request:sendRaw', (_event, port, rawRequest) => {
     let responseData = Buffer.alloc(0)
     let startTime = Date.now()
 
-    let finalRequest = rawRequest;
-    const parts = rawRequest.split('\r\n\r\n');
+    // Normalize newlines to \r\n (textarea might emit just \n)
+    let normalizedReq = rawRequest.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
+    if (!normalizedReq.includes('\r\n\r\n')) {
+      if (normalizedReq.endsWith('\r\n')) {
+        normalizedReq += '\r\n';
+      } else {
+        normalizedReq += '\r\n\r\n';
+      }
+    }
+
+    let finalRequest = normalizedReq;
+    const parts = normalizedReq.split('\r\n\r\n');
     if (parts.length >= 2) {
       const headStr = parts[0];
       const bodyStr = parts.slice(1).join('\r\n\r\n');
-      const actualLen = Buffer.byteLength(bodyStr, 'utf8');
+      // Only fix Content-Length if it's actually a request with a body
       if (/Content-Length:\s*\d+/i.test(headStr)) {
+        const actualLen = Buffer.byteLength(bodyStr, 'utf8');
         const newHead = headStr.replace(/Content-Length:\s*\d+/i, `Content-Length: ${actualLen}`);
         finalRequest = newHead + '\r\n\r\n' + bodyStr;
       }
