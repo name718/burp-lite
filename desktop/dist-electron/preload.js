@@ -23,6 +23,7 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   // ── System Proxy ───────────────────────────────────────────────────────────
   setSystemProxy: (opts) => electron.ipcRenderer.invoke("system:setProxy", opts),
   clearSystemProxy: () => electron.ipcRenderer.invoke("system:clearProxy"),
+  downloadCert: () => electron.ipcRenderer.invoke("system:downloadCert"),
   // ── Events (main → renderer) ───────────────────────────────────────────────
   onLogLine: (cb) => {
     electron.ipcRenderer.on("log:line", (_event, line) => cb(line));

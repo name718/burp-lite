@@ -161,7 +161,7 @@ electron.ipcMain.handle("system:downloadCert", async () => {
       return { ok: false, msg: "Root CA certificate not found at /tmp/chaos_ca/ca.crt. Has the proxy started?" };
     }
     const defaultPath = path.join(electron.app.getPath("desktop"), "burp-lite-ca.crt");
-    const { canceled, filePath } = await dialog.showSaveDialog({
+    const { canceled, filePath } = await electron.dialog.showSaveDialog({
       title: "Save Root CA Certificate",
       defaultPath,
       filters: [{ name: "Certificates", extensions: ["crt", "cer", "pem"] }]
@@ -169,7 +169,7 @@ electron.ipcMain.handle("system:downloadCert", async () => {
     if (canceled || !filePath) {
       return { ok: false, msg: "Cancelled by user" };
     }
-    copyFileSync(caPath, filePath);
+    fs.copyFileSync(caPath, filePath);
     return { ok: true, msg: "Certificate saved successfully to " + filePath };
   } catch (err) {
     return { ok: false, msg: err.message };
