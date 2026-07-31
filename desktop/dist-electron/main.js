@@ -154,6 +154,27 @@ electron.ipcMain.handle("system:clearProxy", () => {
     return { ok: false, msg: err.message };
   }
 });
+electron.ipcMain.handle("system:downloadCert", async () => {
+  try {
+    const caPath = "/tmp/chaos_ca/ca.crt";
+    if (!fs.existsSync(caPath)) {
+      return { ok: false, msg: "Root CA certificate not found at /tmp/chaos_ca/ca.crt. Has the proxy started?" };
+    }
+    const defaultPath = path.join(electron.app.getPath("desktop"), "burp-lite-ca.crt");
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: "Save Root CA Certificate",
+      defaultPath,
+      filters: [{ name: "Certificates", extensions: ["crt", "cer", "pem"] }]
+    });
+    if (canceled || !filePath) {
+      return { ok: false, msg: "Cancelled by user" };
+    }
+    copyFileSync(caPath, filePath);
+    return { ok: true, msg: "Certificate saved successfully to " + filePath };
+  } catch (err) {
+    return { ok: false, msg: err.message };
+  }
+});
 electron.ipcMain.handle("payload:read", (_event, id, type) => {
   try {
     const filePath = path.join("/tmp/chaos_logs", `${id}_${type}.bin`);

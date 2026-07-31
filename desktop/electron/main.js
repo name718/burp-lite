@@ -186,6 +186,33 @@ ipcMain.handle('system:clearProxy', () => {
   }
 })
 
+ipcMain.handle('system:downloadCert', async () => {
+  try {
+    const caPath = '/tmp/chaos_ca/ca.crt'
+    if (!existsSync(caPath)) {
+      return { ok: false, msg: 'Root CA certificate not found at /tmp/chaos_ca/ca.crt. Has the proxy started?' }
+    }
+    
+    // Default to Desktop
+    const defaultPath = join(app.getPath('desktop'), 'burp-lite-ca.crt')
+    
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: 'Save Root CA Certificate',
+      defaultPath,
+      filters: [{ name: 'Certificates', extensions: ['crt', 'cer', 'pem'] }]
+    })
+    
+    if (canceled || !filePath) {
+      return { ok: false, msg: 'Cancelled by user' }
+    }
+    
+    copyFileSync(caPath, filePath)
+    return { ok: true, msg: 'Certificate saved successfully to ' + filePath }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
 // ─── IPC: Read Payload ────────────────────────────────────────────────────────
 ipcMain.handle('payload:read', (_event, id, type) => {
   try {

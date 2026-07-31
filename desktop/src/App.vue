@@ -520,6 +520,40 @@
           </div>
         </div>
       </section>
+      
+      <!-- ════════════ E. Settings ════════════ -->
+      <section v-show="activeTab === 'settings'" class="tab-pane settings-pane">
+        <div class="settings-header">
+          <h2>⚙️ 系统设置 (Settings)</h2>
+        </div>
+        <div class="settings-body">
+          <div class="settings-card">
+            <h3>🔒 HTTPS 代理根证书配置</h3>
+            <p class="settings-desc">
+              为了拦截并解密 HTTPS 流量，Burp Lite 会动态为你生成私有的 Root CA 证书。
+              你需要将此根证书下载并安装到系统中，然后设置为<strong>“始终信任 (Always Trust)”</strong>。
+            </p>
+            
+            <div class="cert-actions">
+              <button class="btn-primary cert-btn" @click="downloadCert">
+                ⬇️ 下载 Root CA 证书
+              </button>
+            </div>
+            
+            <div class="cert-guide">
+              <h4>macOS 安装教程：</h4>
+              <ol>
+                <li>点击上方按钮，将证书下载到桌面 (默认名为 <code>burp-lite-ca.crt</code>)</li>
+                <li>双击桌面的证书文件，系统会自动打开 <strong>钥匙串访问 (Keychain Access)</strong></li>
+                <li>在钥匙串列表中找到名为 <strong><code>ChaosProxy Root CA</code></strong> 的证书</li>
+                <li>双击它，展开 <strong>“信任 (Trust)”</strong> 菜单</li>
+                <li>将“使用此证书时”改为 <strong>“始终信任 (Always Trust)”</strong></li>
+                <li>关闭窗口并输入系统密码授权。重启浏览器即可生效！</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
 
     <!-- ⑤ 底部日志面板 (可折叠) -->
@@ -634,6 +668,7 @@ const tabs = [
   { id: 'interceptor', icon: '🛑', label: 'Interceptor'  },
   { id: 'rules',       icon: '💥', label: 'Chaos Rules'  },
   { id: 'repeater',    icon: '🔄', label: 'Repeater'     },
+  { id: 'settings',    icon: '⚙️', label: 'Settings'     },
 ]
 
 // ── Computed ──────────────────────────────────────────────────────────────────
@@ -1168,6 +1203,20 @@ function sendToRepeater(item) {
   activeTab.value = 'repeater'
   repeaterReqTab.value = '' // clear to force switch
   switchRepeaterTab('builder')
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+async function downloadCert() {
+  if (window.electronAPI && window.electronAPI.downloadCert) {
+    const res = await window.electronAPI.downloadCert()
+    if (res.ok) {
+      showToast('✅ 证书已成功保存到桌面，请按照教程安装并信任！', 'info')
+    } else if (res.msg !== 'Cancelled by user') {
+      showToast('❌ 下载失败: ' + res.msg, 'error')
+    }
+  } else {
+    showToast('Web 模式不支持下载，请在 Electron 桌面端使用', 'warn')
+  }
 }
 
 // ── Mock data (browser mode) ──────────────────────────────────────────────────
@@ -1896,6 +1945,88 @@ onUnmounted(() => {
   font-size: 13px;
   line-height: 1.5;
   outline: none;
+}
+
+/* ─── Settings ────────────────────────────────────────────────────────────── */
+.settings-pane {
+  padding: 20px;
+  overflow-y: auto;
+}
+.settings-header {
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 10px;
+}
+.settings-header h2 {
+  margin: 0;
+  font-size: 20px;
+  color: #fff;
+}
+.settings-body {
+  max-width: 800px;
+}
+.settings-card {
+  background: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 25px;
+  margin-bottom: 20px;
+}
+.settings-card h3 {
+  margin-top: 0;
+  color: #fff;
+  font-size: 16px;
+  margin-bottom: 15px;
+}
+.settings-desc {
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin-bottom: 20px;
+  font-size: 14px;
+}
+.cert-actions {
+  margin-bottom: 25px;
+}
+.cert-btn {
+  padding: 12px 24px;
+  font-size: 15px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: #4a90e2;
+  color: white;
+  border: none;
+  font-weight: 600;
+  transition: background 0.2s;
+  box-shadow: 0 2px 8px rgba(74, 144, 226, 0.3);
+}
+.cert-btn:hover {
+  background: #357abd;
+}
+.cert-guide {
+  background: rgba(0,0,0,0.2);
+  padding: 20px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.05);
+}
+.cert-guide h4 {
+  margin-top: 0;
+  color: #e5c07b;
+  margin-bottom: 15px;
+  font-size: 15px;
+}
+.cert-guide ol {
+  margin: 0;
+  padding-left: 20px;
+  color: #abb2bf;
+  line-height: 1.8;
+  font-size: 14px;
+}
+.cert-guide code {
+  background: rgba(255,255,255,0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'Fira Code', monospace;
+  color: #98c379;
 }
 
 .repeater-btn {
