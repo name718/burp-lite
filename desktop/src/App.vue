@@ -436,9 +436,46 @@
         </div>
         <div class="repeater-body">
           <div class="repeater-col">
-            <div class="repeater-col-header">✏️ Request</div>
-            <textarea v-model="repeaterReq" class="raw-editor" spellcheck="false"
+            <div class="repeater-col-header" style="justify-content: space-between; display: flex;">
+              <span>✏️ Request</span>
+              <div class="repeater-tabs">
+                <button class="btn-sm" :class="{active: repeaterReqTab==='builder'}" @click="switchRepeaterTab('builder')">Builder</button>
+                <button class="btn-sm" :class="{active: repeaterReqTab==='raw'}" @click="switchRepeaterTab('raw')">Raw</button>
+              </div>
+            </div>
+            
+            <textarea v-if="repeaterReqTab === 'raw'" v-model="repeaterReq" class="raw-editor" spellcheck="false"
                       placeholder="POST /api/user/login HTTP/1.1&#10;Host: example.com&#10;Content-Type: application/json&#10;&#10;{&quot;user&quot;: &quot;admin&quot;}" />
+                      
+            <div v-else class="builder-editor">
+              <div class="builder-req-line">
+                <select v-model="repeaterMethod" class="builder-select">
+                  <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option><option>PATCH</option><option>OPTIONS</option><option>HEAD</option>
+                </select>
+                <input v-model="repeaterPath" class="builder-input path-input" placeholder="/api/path?query=1" />
+                <input v-model="repeaterProto" class="builder-input proto-input" />
+              </div>
+              
+              <div class="builder-section">
+                <div class="builder-section-title">
+                  Headers 
+                  <button class="btn-sm" @click="addRepeaterHeader">➕ Add</button>
+                </div>
+                <div class="builder-headers">
+                  <div v-for="(h, i) in repeaterHeaders" :key="i" class="header-row">
+                    <input v-model="h.key" placeholder="Key" class="builder-input hdr-key" />
+                    <span class="colon">:</span>
+                    <input v-model="h.val" placeholder="Value" class="builder-input hdr-val" />
+                    <button class="btn-icon" @click="removeRepeaterHeader(i)">❌</button>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="builder-section body-section">
+                <div class="builder-section-title">Body</div>
+                <textarea v-model="repeaterBody" class="builder-body-editor" spellcheck="false" placeholder="Request body..."></textarea>
+              </div>
+            </div>
           </div>
           <div class="repeater-col">
             <div class="repeater-col-header">
@@ -533,6 +570,12 @@ watch(interceptorOn, async () => {
 // Repeater
 const repeaterTarget  = ref('http://127.0.0.1:8888')
 const repeaterReq     = ref('POST /api/user/login HTTP/1.1\r\nHost: api.example.com\r\nContent-Type: application/json\r\n\r\n{"user":"repeater"}')
+const repeaterReqTab  = ref('raw')
+const repeaterMethod  = ref('GET')
+const repeaterPath    = ref('/')
+const repeaterProto   = ref('HTTP/1.1')
+const repeaterHeaders = ref([])
+const repeaterBody    = ref('')
 const repeaterResp    = ref('')
 const repeaterStatus  = ref(null)
 const repeaterMs      = ref(null)
@@ -937,7 +980,66 @@ async function dropRequest() {
 }
 
 // ── Repeater ──────────────────────────────────────────────────────────────────
+
+function switchRepeaterTab(tab) {
+  if (repeaterReqTab.value === tab) return
+  if (tab === 'builder') {
+    const text = repeaterReq.value || ''
+    const parts = text.split(/\r?\n\r?\n/)
+    const headStr = parts[0] || ''
+    const bodyStr = parts.slice(1).join('\n\n') || ''
+    const lines = headStr.split(/\r?\n/)
+    const reqLine = lines[0] || ''
+    const [method, path, proto] = reqLine.trim().split(/\s+/)
+    repeaterMethod.value = method || 'GET'
+    repeaterPath.value = path || '/'
+    repeaterProto.value = proto || 'HTTP/1.1'
+    
+    const hdrs = []
+    for (let i = 1; i < lines.length; i++) {
+      const l = lines[i].trim()
+      if (!l) continue
+      const idx = l.indexOf(':')
+      if (idx > 0) {
+        hdrs.push({ key: l.substring(0, idx).trim(), val: l.substring(idx + 1).trim() })
+      } else {
+        hdrs.push({ key: l, val: '' })
+      }
+    }
+    repeaterHeaders.value = hdrs
+    repeaterBody.value = bodyStr
+  } else {
+    let raw = `${repeaterMethod.value} ${repeaterPath.value} ${repeaterProto.value}\r\n`
+    for (const h of repeaterHeaders.value) {
+      if (h.key) raw += `${h.key}: ${h.val}\r\n`
+    }
+    raw += '\r\n' + repeaterBody.value
+    repeaterReq.value = raw
+  }
+  repeaterReqTab.value = tab
+}
+
+function addRepeaterHeader() {
+  repeaterHeaders.value.push({ key: '', val: '' })
+}
+
+function removeRepeaterHeader(idx) {
+  repeaterHeaders.value.splice(idx, 1)
+}
+
 async function sendRepeater() {
+  // Ensure we sync from builder to raw before sending if in builder mode
+  if (repeaterReqTab.value === 'builder') {
+    switchRepeaterTab('raw')
+    switchRepeaterTab('builder') // just to trigger the build but stay in builder
+    // Wait, switchRepeaterTab('raw') changes to raw. We can just build it manually.
+    let raw = `${repeaterMethod.value} ${repeaterPath.value} ${repeaterProto.value}\r\n`
+    for (const h of repeaterHeaders.value) {
+      if (h.key) raw += `${h.key}: ${h.val}\r\n`
+    }
+    raw += '\r\n' + repeaterBody.value
+    repeaterReq.value = raw
+  }
   repeaterLoading.value = true
   repeaterResp.value = ''
   repeaterStatus.value = null
@@ -975,6 +1077,8 @@ async function sendRepeater() {
 function sendToRepeater(item) {
   repeaterReq.value = (item.reqHeaders || '') + '\r\n\r\n' + (item.reqRaw || '')
   activeTab.value = 'repeater'
+  repeaterReqTab.value = '' // clear to force switch
+  switchRepeaterTab('builder')
 }
 
 // ── Mock data (browser mode) ──────────────────────────────────────────────────
