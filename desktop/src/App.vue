@@ -436,11 +436,11 @@
         </div>
         <div class="repeater-body">
           <div class="repeater-col">
-            <div class="repeater-col-header" style="justify-content: space-between; display: flex;">
-              <span>✏️ Request</span>
+            <div class="repeater-col-header" style="justify-content: space-between; display: flex; align-items: center;">
+              <span style="font-weight: 600;">✏️ Request Builder</span>
               <div class="repeater-tabs">
-                <button class="btn-sm" :class="{active: repeaterReqTab==='builder'}" @click="switchRepeaterTab('builder')">Builder</button>
-                <button class="btn-sm" :class="{active: repeaterReqTab==='raw'}" @click="switchRepeaterTab('raw')">Raw</button>
+                <button :class="{active: repeaterReqTab==='builder'}" @click="switchRepeaterTab('builder')">Builder</button>
+                <button :class="{active: repeaterReqTab==='raw'}" @click="switchRepeaterTab('raw')">Raw</button>
               </div>
             </div>
             
@@ -458,22 +458,24 @@
               
               <div class="builder-section">
                 <div class="builder-section-title">
-                  Headers 
-                  <button class="btn-sm" @click="addRepeaterHeader">➕ Add</button>
+                  <span>Headers</span>
+                  <button class="btn-sm btn-outline" @click="addRepeaterHeader">➕ Add</button>
                 </div>
                 <div class="builder-headers">
                   <div v-for="(h, i) in repeaterHeaders" :key="i" class="header-row">
                     <input v-model="h.key" placeholder="Key" class="builder-input hdr-key" />
-                    <span class="colon">:</span>
                     <input v-model="h.val" placeholder="Value" class="builder-input hdr-val" />
-                    <button class="btn-icon" @click="removeRepeaterHeader(i)">❌</button>
+                    <button class="btn-icon delete-btn" @click="removeRepeaterHeader(i)" title="Remove">✕</button>
+                  </div>
+                  <div v-if="repeaterHeaders.length === 0" class="empty-headers" @click="addRepeaterHeader">
+                    No headers. Click here to add one.
                   </div>
                 </div>
               </div>
               
               <div class="builder-section body-section">
                 <div class="builder-section-title">Body</div>
-                <textarea v-model="repeaterBody" class="builder-body-editor" spellcheck="false" placeholder="Request body..."></textarea>
+                <textarea v-model="repeaterBody" class="builder-body-editor" spellcheck="false" placeholder="Enter request body here..."></textarea>
               </div>
             </div>
           </div>
@@ -1661,6 +1663,152 @@ onUnmounted(() => {
   font-size: 13px;
   color: var(--text-muted);
   font-style: italic;
+}
+.repeater-tabs {
+  display: inline-flex;
+  background: rgba(0,0,0,0.25);
+  border-radius: 6px;
+  padding: 3px;
+  border: 1px solid rgba(255,255,255,0.05);
+}
+.repeater-tabs button {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 4px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.repeater-tabs button:hover {
+  color: #fff;
+}
+.repeater-tabs button.active {
+  color: #fff;
+  background: var(--panel-bg);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+.builder-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  background: var(--bg-color);
+}
+.builder-req-line {
+  display: flex;
+  padding: 12px;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-color);
+  background: rgba(255,255,255,0.01);
+}
+.builder-input, .builder-select {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text-main);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-family: 'Fira Code', Consolas, monospace;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+.builder-input:focus, .builder-select:focus {
+  border-color: #4a90e2;
+  background: rgba(255,255,255,0.08);
+}
+.builder-select { width: 100px; font-weight: bold; color: #61afef; cursor: pointer; }
+.path-input { flex: 1; }
+.proto-input { width: 110px; color: #e5c07b; }
+
+.builder-section {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border-color);
+}
+.builder-section-title {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: rgba(0,0,0,0.1);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.btn-outline {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.2);
+  color: var(--text-muted);
+  border-radius: 4px;
+}
+.btn-outline:hover {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+}
+.builder-headers {
+  max-height: 250px;
+  overflow-y: auto;
+  padding: 12px;
+}
+.header-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+.header-row:last-child {
+  margin-bottom: 0;
+}
+.hdr-key { width: 200px; color: #98c379; }
+.hdr-val { flex: 1; color: #abb2bf; }
+.delete-btn {
+  background: transparent;
+  border: none;
+  color: #e06c75;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+  opacity: 0.6;
+  transition: opacity 0.2s, transform 0.2s;
+}
+.delete-btn:hover {
+  opacity: 1;
+  transform: scale(1.1);
+}
+.empty-headers {
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 10px;
+  cursor: pointer;
+  border: 1px dashed rgba(255,255,255,0.1);
+  border-radius: 4px;
+}
+.empty-headers:hover {
+  background: rgba(255,255,255,0.05);
+  color: #fff;
+}
+.body-section {
+  flex: 1;
+  border-bottom: none;
+}
+.builder-body-editor {
+  flex: 1;
+  width: 100%;
+  resize: none;
+  background: transparent;
+  color: #abb2bf;
+  border: none;
+  padding: 15px;
+  font-family: 'Fira Code', Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  outline: none;
 }
 
 .repeater-btn {
