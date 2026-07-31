@@ -60,8 +60,9 @@ SSL_CTX *get_server_ssl_ctx(const char *domain) {
         snprintf(cmd, sizeof(cmd), 
             "openssl genrsa -out %s 2048 > /dev/null 2>&1 && "
             "openssl req -new -key %s -out /tmp/chaos_ca/certs/%s.csr -subj '/C=CN/ST=Beijing/L=Beijing/O=ChaosProxy/CN=%s' > /dev/null 2>&1 && "
-            "openssl x509 -req -in /tmp/chaos_ca/certs/%s.csr -CA /tmp/chaos_ca/ca.crt -CAkey /tmp/chaos_ca/ca.key -CAcreateserial -out %s -days 365 -sha256 > /dev/null 2>&1",
-            key_path, key_path, domain, domain, domain, cert_path);
+            "echo \"subjectAltName=DNS:%s,DNS:*.%s\" > /tmp/chaos_ca/certs/%s.ext && "
+            "openssl x509 -req -in /tmp/chaos_ca/certs/%s.csr -CA /tmp/chaos_ca/ca.crt -CAkey /tmp/chaos_ca/ca.key -CAcreateserial -extfile /tmp/chaos_ca/certs/%s.ext -out %s -days 365 -sha256 > /dev/null 2>&1",
+            key_path, key_path, domain, domain, domain, domain, domain, domain, domain, cert_path);
         
         system(cmd);
     }
