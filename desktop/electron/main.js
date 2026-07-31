@@ -285,6 +285,60 @@ ipcMain.handle('request:sendRaw', (_event, port, rawRequest) => {
   })
 })
 
+// ─── IPC: Port Manager ────────────────────────────────────────────────────────
+ipcMain.handle('tool:getPorts', async () => {
+  try {
+    // macOS 'lsof -i -P -n | grep LISTEN' outputs:
+    // COMMAND   PID USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+    // node    12345 didi   23u  IPv4 0xabcdef1234567890      0t0  TCP *:8888 (LISTEN)
+    const out = execSync('lsof -i -P -n | grep LISTEN', { encoding: 'utf-8' })
+    const lines = out.split('\n').filter(Boolean)
+    const ports = []
+
+    for (const line of lines) {
+      const parts = line.trim().split(/\s+/)
+      if (parts.length >= 9) {
+        const processName = parts[0]
+        const pid = parseInt(parts[1], 10)
+        const protocol = parts[7]
+        
+        // Parse "NAME" column which looks like "*:8888" or "127.0.0.1:8888" or "localhost:8888"
+        const nameCol = parts.slice(8).join(' ')
+        const match = nameCol.match(/:(\d+)/)
+        if (match) {
+          const port = parseInt(match[1], 10)
+          ports.push({ port, pid, processName, protocol })
+        }
+      }
+    }
+    // Deduplicate by port
+    const uniquePorts = []
+    const seen = new Set()
+    for (const p of ports) {
+      if (!seen.has(p.port)) {
+        seen.add(p.port)
+        uniquePorts.push(p)
+      }
+    }
+    // Sort by port number
+    uniquePorts.sort((a, b) => a.port - b.port)
+    return { ok: true, ports: uniquePorts }
+  } catch (err) {
+    // grep returns 1 if no match, which throws an error in execSync
+    if (err.status === 1) return { ok: true, ports: [] }
+    return { ok: false, msg: err.message }
+  }
+})
+
+ipcMain.handle('tool:killPort', async (_event, pid) => {
+  try {
+    execSync(`kill -9 ${pid}`)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
 // ─── App Lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(createWindow)
 

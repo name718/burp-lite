@@ -234,6 +234,48 @@ electron.ipcMain.handle("request:sendRaw", (_event, port, rawRequest) => {
     });
   });
 });
+electron.ipcMain.handle("tool:getPorts", async () => {
+  try {
+    const out = child_process.execSync("lsof -i -P -n | grep LISTEN", { encoding: "utf-8" });
+    const lines = out.split("\n").filter(Boolean);
+    const ports = [];
+    for (const line of lines) {
+      const parts = line.trim().split(/\s+/);
+      if (parts.length >= 9) {
+        const processName = parts[0];
+        const pid = parseInt(parts[1], 10);
+        const protocol = parts[7];
+        const nameCol = parts.slice(8).join(" ");
+        const match = nameCol.match(/:(\d+)/);
+        if (match) {
+          const port = parseInt(match[1], 10);
+          ports.push({ port, pid, processName, protocol });
+        }
+      }
+    }
+    const uniquePorts = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const p of ports) {
+      if (!seen.has(p.port)) {
+        seen.add(p.port);
+        uniquePorts.push(p);
+      }
+    }
+    uniquePorts.sort((a, b) => a.port - b.port);
+    return { ok: true, ports: uniquePorts };
+  } catch (err) {
+    if (err.status === 1) return { ok: true, ports: [] };
+    return { ok: false, msg: err.message };
+  }
+});
+electron.ipcMain.handle("tool:killPort", async (_event, pid) => {
+  try {
+    child_process.execSync(`kill -9 ${pid}`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, msg: err.message };
+  }
+});
 electron.app.whenReady().then(createWindow);
 electron.app.on("window-all-closed", () => {
   if (proxyProcess) proxyProcess.kill("SIGTERM");

@@ -9,14 +9,38 @@
         <button class="wc wc-max"     @click="api.maximize()" title="最大化" />
       </div>
       <div class="titlebar-title">
-        <span class="tb-logo">⚡</span> Burp Lite
+        <span class="tb-logo">🧰</span> Chaos DevBox
       </div>
       <div class="titlebar-right no-drag">
-        <span class="tb-version">v1.0</span>
+        <span class="tb-version">v2.0</span>
       </div>
     </div>
 
-    <!-- ② 顶部控制栏 -->
+    <!-- 骨架重构：增加应用主体分栏布局 -->
+    <div class="app-body">
+      
+      <!-- 全局侧边栏 (Global Sidebar) -->
+      <aside class="global-sidebar no-drag">
+        <button class="sidebar-btn" :class="{active: currentApp === 'proxy'}" @click="currentApp = 'proxy'" title="抓包与故障注入 (Proxy)">
+          <span class="icon">🌐</span>
+          <span class="label">Proxy</span>
+        </button>
+        <button class="sidebar-btn" :class="{active: currentApp === 'ports'}" @click="currentApp = 'ports'" title="端口管理 (Port Manager)">
+          <span class="icon">🔌</span>
+          <span class="label">Ports</span>
+        </button>
+        <button class="sidebar-btn" :class="{active: currentApp === 'tools'}" @click="currentApp = 'tools'" title="其他工具 (Dev Tools)">
+          <span class="icon">🛠️</span>
+          <span class="label">Tools</span>
+        </button>
+      </aside>
+
+      <!-- 右侧应用容器 -->
+      <div class="app-content">
+
+        <!-- ======================= Proxy App (原 Burp Lite) ======================= -->
+        <div class="sub-app" v-show="currentApp === 'proxy'">
+          <!-- ② 顶部控制栏 -->
     <header class="topbar">
       <div class="topbar-left">
         <!-- 代理状态指示 -->
@@ -565,7 +589,59 @@
           </div>
         </div>
       </section>
+    </div> <!-- end workspace -->
+    </div> <!-- end Proxy App -->
+
+    <!-- ======================= Port Manager App ======================= -->
+    <div class="sub-app port-app" v-show="currentApp === 'ports'">
+      <div class="pane-toolbar" style="padding: 12px 20px; gap: 16px;">
+        <h2 style="margin: 0; font-size: 16px; color: #fff;">🔌 端口管理器 (Port Manager)</h2>
+        <div style="flex: 1"></div>
+        <input v-model="portSearch" placeholder="搜索端口或进程名称..." class="filter-input" style="width: 250px;" />
+        <button class="toolbar-btn" style="background: var(--purple); color: white; border: none; padding: 6px 12px;" @click="loadPorts" :disabled="portsLoading">
+          {{ portsLoading ? '🔄 扫描中...' : '🔄 刷新列表' }}
+        </button>
+      </div>
+
+      <div class="req-table-wrap" style="flex: 1; overflow-y: auto; padding: 0;">
+        <table class="req-table">
+          <thead>
+            <tr>
+              <th style="width: 100px;">端口 (Port)</th>
+              <th style="width: 100px;">协议 (Proto)</th>
+              <th>进程 (Process)</th>
+              <th style="width: 120px;">PID</th>
+              <th style="width: 100px; text-align: center;">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="p in filteredPorts" :key="p.port + '-' + p.pid">
+              <td class="mono" style="color: var(--cyan); font-weight: bold;">{{ p.port }}</td>
+              <td class="mono muted">{{ p.protocol }}</td>
+              <td>{{ p.processName }}</td>
+              <td class="mono muted">{{ p.pid }}</td>
+              <td style="text-align: center;">
+                <button class="danger-btn toolbar-btn" @click="killPort(p.pid, p.port)">🔥 Kill</button>
+              </td>
+            </tr>
+            <tr v-if="filteredPorts.length === 0">
+              <td colspan="5" class="empty-row">{{ portsLoading ? '扫描中...' : '未找到匹配的监听端口' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
+
+    <!-- ======================= Other Tools App (占位) ======================= -->
+    <div class="sub-app placeholder-app" v-show="currentApp === 'tools'">
+      <div class="placeholder-content">
+        <h2>🛠️ 开发者小工具 (Dev Tools)</h2>
+        <p>JSON 格式化、JWT 解析、时间戳转换等 (即将上线...)</p>
+      </div>
+    </div>
+
+    </div> <!-- end app-content -->
+    </div> <!-- end app-body -->
 
     <!-- ⑤ 底部日志面板 (可折叠) -->
     <div class="log-panel" :class="{collapsed: !showLog}">
@@ -609,9 +685,13 @@ const api = isElectron ? window.electronAPI : {
   onProxyStopped: () => {},
   removeAllListeners: () => {},
   minimize: () => {}, maximize: () => {}, close: () => {},
+  // Tool handlers fallback
+  getPorts: async () => ({ ok: true, ports: [] }),
+  killPort: async () => ({ ok: true }),
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
+const currentApp      = ref('proxy')
 const activeTab       = ref('history')
 const proxyRunning    = ref(false)
 const proxyPort       = ref(8888)
@@ -634,6 +714,57 @@ let historySeq = 0
 const rules           = ref([])
 const editingRule     = ref(null)
 const isNewRule       = ref(false)
+
+// Ports Manager
+const portsList       = ref([])
+const portSearch      = ref('')
+const portsLoading    = ref(false)
+
+const filteredPorts = computed(() => {
+  if (!portSearch.value) return portsList.value
+  const query = portSearch.value.toLowerCase()
+  return portsList.value.filter(p => 
+    String(p.port).includes(query) || 
+    (p.processName && p.processName.toLowerCase().includes(query))
+  )
+})
+
+const loadPorts = async () => {
+  portsLoading.value = true
+  try {
+    const res = await api.getPorts()
+    if (res.ok) {
+      portsList.value = res.ports
+    } else {
+      showToast('获取端口失败: ' + res.msg, 'error')
+    }
+  } catch (err) {
+    showToast('发生错误', 'error')
+  } finally {
+    portsLoading.value = false
+  }
+}
+
+const killPort = async (pid, port) => {
+  if (!confirm(`确定要强制结束 PID ${pid} 吗？\n这可能会导致相关程序崩溃！`)) return
+  try {
+    const res = await api.killPort(pid)
+    if (res.ok) {
+      showToast(`已释放端口 ${port}`, 'success')
+      await loadPorts()
+    } else {
+      showToast('杀进程失败: ' + res.msg, 'error')
+    }
+  } catch (err) {
+    showToast('发生错误', 'error')
+  }
+}
+
+watch(currentApp, (newVal) => {
+  if (newVal === 'ports' && portsList.value.length === 0) {
+    loadPorts()
+  }
+})
 
 // Interceptor
 const interceptedItems= ref([])
@@ -1507,6 +1638,85 @@ onUnmounted(() => {
   transition: all 0.15s;
 }
 .log-toggle.active { background: var(--bg-2); color: var(--text-2); border-color: var(--border-2); }
+
+/* ─── Skeleton & Global Sidebar ─────────────────────────────────────────────── */
+.app-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.global-sidebar {
+  width: 64px;
+  background: var(--bg-1);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 0;
+  gap: 12px;
+}
+
+.sidebar-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+.sidebar-btn:hover {
+  background: rgba(255,255,255,0.05);
+  color: var(--text);
+}
+.sidebar-btn.active {
+  background: rgba(139, 92, 246, 0.15);
+  border-color: rgba(139, 92, 246, 0.3);
+  color: #fff;
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.2);
+}
+.sidebar-btn .icon {
+  font-size: 18px;
+}
+.sidebar-btn .label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+
+.app-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.sub-app {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.placeholder-app {
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  text-align: center;
+}
+.placeholder-content h2 {
+  font-size: 24px;
+  margin-bottom: 12px;
+  color: var(--text);
+}
 
 /* ─── Workspace ───────────────────────────────────────────────────────────── */
 .workspace {
