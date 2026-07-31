@@ -2,15 +2,15 @@
 
 :root {
   /* Backgrounds */
-  --bg:          #0a0d14;
-  --bg-1:        #0f1420;
-  --bg-2:        #161b27;
-  --bg-3:        #1c2333;
-  --bg-hover:    rgba(255,255,255,0.04);
+  --bg:          #06080d; /* Extremely dark, premium */
+  --bg-1:        #0d111b; /* Slightly lighter for cards */
+  --bg-2:        #151b29;
+  --bg-3:        #1d2538;
+  --bg-hover:    rgba(139, 92, 246, 0.08);
 
   /* Borders */
-  --border:      rgba(255,255,255,0.07);
-  --border-2:    rgba(255,255,255,0.12);
+  --border:      rgba(139, 92, 246, 0.15); /* Purple tinted borders */
+  --border-2:    rgba(139, 92, 246, 0.25);
 
   /* Text */
   --text:        #e6edf3;

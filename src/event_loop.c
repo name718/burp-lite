@@ -145,6 +145,21 @@ static ssize_t sys_write(conn_t *c, bool is_client, const void *buf, size_t coun
     return write(fd, buf, count);
 }
 
+static ssize_t sys_write_all(conn_t *c, bool is_client, const char *buf, size_t len) {
+    size_t written = 0;
+    while (written < len) {
+        ssize_t w = sys_write(c, is_client, buf + written, len - written);
+        if (w > 0) {
+            written += w;
+        } else if (w < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            usleep(500);
+        } else {
+            return -1;
+        }
+    }
+    return written;
+}
+
 /* ─── 辅助：设置非阻塞 ──────────────────────────────────────────────────── */
 int set_nonblocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
@@ -622,7 +637,7 @@ void event_loop_run(event_loop_t *loop) {
 
                 if (c->matched_rule == NULL && !g_interceptor_on) {
                     /* ── 透传模式：边读边写，不缓冲，适合大文件和静态资源 ── */
-                    ssize_t bytes = read(c->upstream_fd, chunk, sizeof(chunk));
+                    ssize_t bytes = sys_read(c, false, chunk, sizeof(chunk));
                     if (bytes > 0) {
                         /* 从第一个数据包里提取 HTTP 状态码（用于日志） */
                         if (c->resp_len == 0) {
@@ -637,7 +652,7 @@ void event_loop_run(event_loop_t *loop) {
                         /* 追加写入响应到磁盘，确保抓包完整可见 */
                         append_payload_to_disk(c->id, "resp", chunk, bytes);
                         /* 直接写给客户端，不进缓冲区 */
-                        blocking_write_all(c->client_fd, chunk, bytes);
+                        sys_write_all(c, true, chunk, bytes);
                     } else if (bytes == 0
                                || (bytes < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
                         /* upstream EOF，透传完成，记录日志并关闭 */

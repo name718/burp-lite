@@ -13,6 +13,7 @@
 #include "rule_engine.h"
 #include "cJSON.h"
 #include "logger.h"
+#include <regex.h>
 
 static chaos_rule_t *g_rules_head = NULL; /* 全局规则单向链表头节点指针 */
 static char g_config_path[512] = {0};     /* 配置文件磁盘绝对/相对路径 */
@@ -199,8 +200,18 @@ chaos_rule_t *rule_engine_match(const char *url, const char *method) {
     chaos_rule_t *curr = g_rules_head;
     while (curr) {
         if (curr->enabled) {
-            // URL 匹配：匹配前缀或包含该 URL 子串
-            bool url_match = (strlen(curr->match_url) == 0) || (strstr(url, curr->match_url) != NULL);
+            // URL 匹配：匹配前缀或包含该 URL 子串，同时支持正则表达式
+            bool url_match = (strlen(curr->match_url) == 0);
+            if (!url_match) {
+                regex_t regex;
+                if (regcomp(&regex, curr->match_url, REG_EXTENDED | REG_NOSUB) == 0) {
+                    url_match = (regexec(&regex, url, 0, NULL, 0) == 0);
+                    regfree(&regex);
+                } else {
+                    /* 回退到普通的子串匹配 */
+                    url_match = (strstr(url, curr->match_url) != NULL);
+                }
+            }
             // Method 匹配：匹配 GET, POST 或任意方法
             bool method_match = (strlen(curr->match_method) == 0) || (strcasecmp(method, curr->match_method) == 0);
 

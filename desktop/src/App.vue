@@ -497,26 +497,37 @@
               </div>
             </div>
           </div>
-          <div class="repeater-col">
-            <div class="repeater-col-header" style="justify-content: space-between; display: flex; align-items: center;">
+          <div class="repeater-col history-detail-view" style="min-width: unset; flex: 1; border-right: none;">
+            <div class="devtools-header" style="justify-content: space-between; border-bottom: 1px solid var(--border);">
               <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="font-weight: 600;">📨 Response</span>
+                <span style="font-weight: 600; color: var(--text); font-size: 13px;">📨 响应 (Response)</span>
                 <span v-if="repeaterStatus" class="badge-status" :class="statusClass(repeaterStatus)">
                   {{ repeaterStatus }}
                 </span>
                 <span v-if="repeaterMs" class="muted">{{ repeaterMs }}ms</span>
               </div>
-              <div class="repeater-tabs">
-                <button :class="{active: repeaterRespTab==='pretty'}" @click="repeaterRespTab='pretty'">Pretty</button>
-                <button :class="{active: repeaterRespTab==='raw'}" @click="repeaterRespTab='raw'">Raw</button>
+              <div class="devtools-tabs">
+                <button :class="{active: repeaterRespTab==='pretty'}" @click="repeaterRespTab='pretty'">JSON (Pretty)</button>
+                <button :class="{active: repeaterRespTab==='raw'}" @click="repeaterRespTab='raw'">原始数据 (Raw)</button>
               </div>
             </div>
             
-            <div v-if="repeaterRespTab === 'pretty' && parsedRepeaterRespJson" class="json-viewer-wrap" style="flex:1; overflow:auto; background:var(--bg-color); padding: 10px;">
-              <vue-json-pretty :data="parsedRepeaterRespJson" :deep="3" showIcon showLineNumber :collapsedOnClickBrackets="true" />
+            <div class="devtools-content">
+              <div v-if="repeaterRespTab === 'pretty'" class="dt-section">
+                <div v-if="parsedRepeaterRespJson" class="json-viewer-wrap dt-group" style="background: var(--bg-dark); padding: 12px; border-radius: 4px; border: 1px solid var(--border);">
+                  <vue-json-pretty :data="parsedRepeaterRespJson" :deep="3" showIcon showLineNumber :collapsedOnClickBrackets="true" />
+                </div>
+                <div v-else class="dt-group">
+                  <pre class="dt-pre dt-response">{{ repeaterResp ? 'Response is not valid JSON. View in Raw tab.' : '点击 Send 发送请求...' }}</pre>
+                </div>
+              </div>
+              
+              <div v-if="repeaterRespTab === 'raw'" class="dt-section">
+                <div class="dt-group">
+                  <pre class="dt-pre dt-response">{{ repeaterResp || '点击 Send 发送请求...' }}</pre>
+                </div>
+              </div>
             </div>
-            <pre v-else-if="repeaterRespTab === 'pretty' && !parsedRepeaterRespJson" class="raw-editor" style="overflow:auto; white-space:pre-wrap">{{ repeaterResp ? 'Response is not valid JSON. View in Raw tab.' : '点击 Send 发送请求...' }}</pre>
-            <pre v-else class="raw-editor" style="overflow:auto; white-space:pre-wrap">{{ repeaterResp || '点击 Send 发送请求...' }}</pre>
           </div>
         </div>
       </section>
