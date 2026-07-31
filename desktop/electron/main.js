@@ -4,12 +4,63 @@ import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { readFileSync, writeFileSync, existsSync, copyFileSync, readdirSync, statSync } from 'fs'
 import net from 'net'
-
+import simpleGit from 'simple-git'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 // ─── State ───────────────────────────────────────────────────────────────────
 let mainWindow = null
 let proxyProcess = null
+
+// --- Git Askpass Server ---
+import http from 'http'
+let askpassPort = 0
+const askpassRequests = new Map()
+let askpassIdCounter = 0
+
+const askpassServer = http.createServer((req, res) => {
+  if (req.method === 'POST') {
+    let body = ''
+    req.on('data', chunk => body += chunk)
+    req.on('end', () => {
+      try {
+        const { prompt } = JSON.parse(body)
+        const reqId = ++askpassIdCounter
+        askpassRequests.set(reqId, res)
+        if (mainWindow) {
+          mainWindow.webContents.send('git:askpass', { reqId, prompt })
+        } else {
+          res.end('')
+        }
+      } catch (e) {
+        res.end('')
+      }
+    })
+  } else {
+    res.end('')
+  }
+})
+
+askpassServer.listen(0, '127.0.0.1', () => {
+  askpassPort = askpassServer.address().port
+})
+
+ipcMain.handle('git:askpass-reply', (_event, reqId, password) => {
+  const res = askpassRequests.get(reqId)
+  if (res) {
+    res.end(password || '')
+    askpassRequests.delete(reqId)
+  }
+})
+
+const gitAskpassPath = join(__dirname, 'git-askpass.js')
+
+const createGit = (cwd) => {
+  return simpleGit({ baseDir: cwd }).env({
+    ...process.env,
+    GIT_ASKPASS: gitAskpassPath,
+    ASKPASS_PORT: askpassPort.toString()
+  })
+}
 
 // ─── Path helpers ─────────────────────────────────────────────────────────────
 // In dev: __dirname = desktop/dist-electron, binary is at desktop/../build/bin
@@ -492,6 +543,233 @@ ipcMain.handle('tool:sendCurl', async (_event, curlCmd) => {
     return { ok: true, output: out }
   } catch (err) {
     return { ok: false, msg: err.message, output: err.stdout?.toString() || '' }
+  }
+})
+
+// ─── IPC: Git Management ──────────────────────────────────────────────────────
+ipcMain.handle('git:scan', async (_event, rootDir) => {
+  try {
+    if (!existsSync(rootDir)) return { ok: false, msg: 'Directory not found' }
+    const gitRepos = []
+    
+    // Check rootDir itself
+    if (existsSync(join(rootDir, '.git'))) {
+      gitRepos.push(rootDir)
+    }
+    
+    // Check direct children
+    const items = readdirSync(rootDir)
+    for (const item of items) {
+      if (item === 'node_modules' || item.startsWith('.')) continue
+      const itemPath = join(rootDir, item)
+      if (statSync(itemPath).isDirectory()) {
+        if (existsSync(join(itemPath, '.git'))) {
+          gitRepos.push(itemPath)
+        }
+      }
+    }
+    return { ok: true, repos: gitRepos }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
+ipcMain.handle('git:status', async (_event, cwd) => {
+  try {
+    const git = createGit(cwd)
+    const raw = await git.status()
+    // Extract only serializable plain data (simple-git objects contain non-cloneable methods)
+    const status = {
+      current: raw.current,
+      tracking: raw.tracking,
+      files: raw.files.map(f => ({
+        path: f.path,
+        index: f.index,
+        working_dir: f.working_dir,
+      })),
+    }
+    return { ok: true, status }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
+ipcMain.handle('git:log', async (_event, cwd) => {
+  try {
+    const git = createGit(cwd)
+    const raw = await git.log()
+    const log = {
+      total: raw.total,
+      all: raw.all.map(l => ({ hash: l.hash, date: l.date, message: l.message, author_name: l.author_name })),
+    }
+    return { ok: true, log }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
+ipcMain.handle('git:diff', async (_event, cwd, file, staged = false) => {
+  try {
+    const git = createGit(cwd)
+    // To get the original content for Monaco Editor diff view:
+    // If it's staged, we might need HEAD:file, if unstaged we need index:file
+    // For simplicity, VS Code often shows HEAD vs Working Tree or Index vs Working Tree.
+    // Let's get the string of `HEAD:file`
+    let original = ''
+    try {
+      original = await git.show(['HEAD:' + file])
+    } catch(e) {
+      // Might be a new file
+      original = ''
+    }
+    
+    // Read the current file from disk
+    const filePath = join(cwd, file)
+    let modified = ''
+    if (existsSync(filePath)) {
+      modified = readFileSync(filePath, 'utf-8')
+    }
+    return { ok: true, original, modified }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
+ipcMain.handle('git:stage', async (_event, cwd, file) => {
+  try {
+    const git = createGit(cwd)
+    await git.add(file)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
+ipcMain.handle('git:unstage', async (_event, cwd, file) => {
+  try {
+    const git = createGit(cwd)
+    await git.reset(['--', file])
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
+ipcMain.handle('git:commit', async (_event, cwd, message) => {
+  try {
+    const git = createGit(cwd)
+    await git.commit(message)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
+ipcMain.handle('git:branch', async (_event, cwd) => {
+  try {
+    const git = createGit(cwd)
+    const raw = await git.branch()
+    // Return plain array of branch names
+    const branches = raw.all ? raw.all.map(b => b) : []
+    return { ok: true, branches }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
+ipcMain.handle('git:checkout', async (_event, cwd, branch) => {
+  try {
+    const git = createGit(cwd)
+    await git.checkout(branch)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
+ipcMain.handle('git:discard', async (_event, cwd, file) => {
+  try {
+    const git = createGit(cwd)
+    await git.checkout(['--', file])
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
+ipcMain.handle('git:pull', async (_event, cwd) => {
+  try {
+    const git = createGit(cwd)
+    const result = await git.pull()
+    return { ok: true, summary: { changes: result.summary?.changes || 0, insertions: result.summary?.insertions || 0, deletions: result.summary?.deletions || 0 } }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
+ipcMain.handle('git:push', async (_event, cwd) => {
+  try {
+    const git = createGit(cwd)
+    await git.push()
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
+ipcMain.handle('git:fetch', async (_event, cwd) => {
+  try {
+    const git = createGit(cwd)
+    await git.fetch()
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
+ipcMain.handle('git:stash', async (_event, cwd) => {
+  try {
+    const git = createGit(cwd)
+    await git.stash()
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
+ipcMain.handle('git:stashPop', async (_event, cwd) => {
+  try {
+    const git = createGit(cwd)
+    await git.stash(['pop'])
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
+ipcMain.handle('git:resolveConflict', async (_event, cwd, file, strategy) => {
+  try {
+    const git = createGit(cwd)
+    if (strategy === 'ours') {
+      await git.checkout(['--ours', '--', file])
+    } else if (strategy === 'theirs') {
+      await git.checkout(['--theirs', '--', file])
+    }
+    // After resolving, stage the file
+    await git.add(file)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
+ipcMain.handle('git:deleteFile', async (_event, cwd, file) => {
+  try {
+    const git = createGit(cwd)
+    await git.rm(file)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, msg: err.message }
   }
 })
 

@@ -35,8 +35,30 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   stopProject: (path) => electron.ipcRenderer.invoke("project:stop", path),
   openEditor: (path, editor) => electron.ipcRenderer.invoke("project:openEditor", path, editor),
   openChrome: (url) => electron.ipcRenderer.invoke("project:openBrowser", url),
+  // ── Git ────────────────────────────────────────────────────────────────────
+  gitScan: (cwd) => electron.ipcRenderer.invoke("git:scan", cwd),
+  gitStatus: (cwd) => electron.ipcRenderer.invoke("git:status", cwd),
+  gitLog: (cwd) => electron.ipcRenderer.invoke("git:log", cwd),
+  gitDiff: (cwd, file, staged) => electron.ipcRenderer.invoke("git:diff", cwd, file, staged),
+  gitStage: (cwd, file) => electron.ipcRenderer.invoke("git:stage", cwd, file),
+  gitUnstage: (cwd, file) => electron.ipcRenderer.invoke("git:unstage", cwd, file),
+  gitCommit: (cwd, message) => electron.ipcRenderer.invoke("git:commit", cwd, message),
+  gitBranch: (cwd) => electron.ipcRenderer.invoke("git:branch", cwd),
+  gitCheckout: (cwd, branch) => electron.ipcRenderer.invoke("git:checkout", cwd, branch),
+  gitDiscard: (cwd, file) => electron.ipcRenderer.invoke("git:discard", cwd, file),
+  gitPull: (cwd) => electron.ipcRenderer.invoke("git:pull", cwd),
+  gitPush: (cwd) => electron.ipcRenderer.invoke("git:push", cwd),
+  gitFetch: (cwd) => electron.ipcRenderer.invoke("git:fetch", cwd),
+  gitStash: (cwd) => electron.ipcRenderer.invoke("git:stash", cwd),
+  gitStashPop: (cwd) => electron.ipcRenderer.invoke("git:stashPop", cwd),
+  gitResolveConflict: (cwd, file, strategy) => electron.ipcRenderer.invoke("git:resolveConflict", cwd, file, strategy),
+  gitDeleteFile: (cwd, file) => electron.ipcRenderer.invoke("git:deleteFile", cwd, file),
+  gitAskpassReply: (reqId, password) => electron.ipcRenderer.invoke("git:askpass-reply", reqId, password),
   onProjectLog: (cb) => {
     electron.ipcRenderer.on("project:log", (_event, data) => cb(data));
+  },
+  onGitAskpass: (cb) => {
+    electron.ipcRenderer.on("git:askpass", (_event, data) => cb(data));
   },
   onProjectReady: (cb) => {
     electron.ipcRenderer.on("project:ready", (_event, data) => cb(data));

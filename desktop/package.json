@@ -10,6 +10,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@guolao/vue-monaco-editor": "^1.6.0",
+    "monaco-editor": "^0.56.0",
+    "simple-git": "^3.36.0",
     "vanilla-jsoneditor": "^3.13.0",
     "vue": "^3.4.0",
     "vue-json-pretty": "^2.6.0"

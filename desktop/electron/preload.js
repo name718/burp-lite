@@ -41,8 +41,31 @@ contextBridge.exposeInMainWorld('electronAPI', {
   stopProject: (path) => ipcRenderer.invoke('project:stop', path),
   openEditor: (path, editor) => ipcRenderer.invoke('project:openEditor', path, editor),
   openChrome: (url) => ipcRenderer.invoke('project:openBrowser', url),
+
+  // ── Git ────────────────────────────────────────────────────────────────────
+  gitScan: (cwd) => ipcRenderer.invoke('git:scan', cwd),
+  gitStatus: (cwd) => ipcRenderer.invoke('git:status', cwd),
+  gitLog: (cwd) => ipcRenderer.invoke('git:log', cwd),
+  gitDiff: (cwd, file, staged) => ipcRenderer.invoke('git:diff', cwd, file, staged),
+  gitStage: (cwd, file) => ipcRenderer.invoke('git:stage', cwd, file),
+  gitUnstage: (cwd, file) => ipcRenderer.invoke('git:unstage', cwd, file),
+  gitCommit: (cwd, message) => ipcRenderer.invoke('git:commit', cwd, message),
+  gitBranch: (cwd) => ipcRenderer.invoke('git:branch', cwd),
+  gitCheckout: (cwd, branch) => ipcRenderer.invoke('git:checkout', cwd, branch),
+  gitDiscard: (cwd, file) => ipcRenderer.invoke('git:discard', cwd, file),
+  gitPull: (cwd) => ipcRenderer.invoke('git:pull', cwd),
+  gitPush: (cwd) => ipcRenderer.invoke('git:push', cwd),
+  gitFetch: (cwd) => ipcRenderer.invoke('git:fetch', cwd),
+  gitStash: (cwd) => ipcRenderer.invoke('git:stash', cwd),
+  gitStashPop: (cwd) => ipcRenderer.invoke('git:stashPop', cwd),
+  gitResolveConflict: (cwd, file, strategy) => ipcRenderer.invoke('git:resolveConflict', cwd, file, strategy),
+  gitDeleteFile: (cwd, file) => ipcRenderer.invoke('git:deleteFile', cwd, file),
+  gitAskpassReply: (reqId, password) => ipcRenderer.invoke('git:askpass-reply', reqId, password),
   onProjectLog: (cb) => {
     ipcRenderer.on('project:log', (_event, data) => cb(data))
+  },
+  onGitAskpass: (cb) => {
+    ipcRenderer.on('git:askpass', (_event, data) => cb(data))
   },
   onProjectReady: (cb) => {
     ipcRenderer.on('project:ready', (_event, data) => cb(data))

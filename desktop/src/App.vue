@@ -33,6 +33,10 @@
           <span class="icon">📦</span>
           <span class="label">Projects</span>
         </button>
+        <button class="sidebar-btn" :class="{active: currentApp === 'git'}" @click="currentApp = 'git'" title="源代码管理 (Source Control)">
+          <span class="icon">🌿</span>
+          <span class="label">Git</span>
+        </button>
         <button class="sidebar-btn" :class="{active: currentApp === 'tools'}" @click="currentApp = 'tools'" title="小工具 (Dev Tools)">
           <span class="icon">🛠️</span>
           <span class="label">Tools</span>
@@ -812,7 +816,192 @@
         </div>
       </div>
     </div>
+    <!-- ======================= Git App ======================= -->
+    <div class="sub-app git-app" v-show="currentApp === 'git'" style="display: flex; flex-direction: row; height: 100%; overflow: hidden;">
+      <!-- Git Sidebar -->
+      <div class="git-sidebar">
+        <!-- Header -->
+        <div class="git-sidebar-header">
+          <span>源代码管理</span>
+          <div style="display: flex; gap: 4px;">
+            <button class="git-icon-btn" @click="scanGitRepos" title="扫描工作区">🔄</button>
+            <button class="git-icon-btn" @click="addGitRepo" title="添加仓库">＋</button>
+          </div>
+        </div>
 
+        <!-- Repos Section -->
+        <div class="git-section">
+          <div class="git-section-header" @click="gitSectionsCollapsed.repos = !gitSectionsCollapsed.repos">
+            <span>{{ gitSectionsCollapsed.repos ? '▶' : '▼' }} 存储库</span>
+          </div>
+          <div v-show="!gitSectionsCollapsed.repos">
+            <div v-if="gitRepoInfos.length === 0" style="padding: 8px 16px; color: var(--text-muted); font-size: 12px;">
+              未发现仓库，请点击 ＋ 添加或 🔄 扫描
+            </div>
+            <div v-for="repo in gitRepoInfos" :key="repo.path"
+              class="git-repo-item" :class="{active: activeGitRepo === repo.path}"
+              @click="switchRepo(repo.path)">
+              <span class="git-repo-icon">📁</span>
+              <span class="git-repo-name" style="flex: 1;">{{ repo.name }}</span>
+              <button class="git-icon-btn git-repo-remove" @click.stop="removeGitRepo(repo.path)" title="移除仓库">✕</button>
+            </div>
+
+            <!-- Branch Picker Modal -->
+            <div v-if="branchPickerRepo" class="git-branch-picker-overlay" @click="branchPickerRepo = null">
+              <div class="git-branch-picker" @click.stop>
+                <div style="padding: 8px; border-bottom: 1px solid var(--border);">
+                  <input v-model="branchSearch" class="git-commit-input" style="height: auto; padding: 6px 8px;" placeholder="搜索分支..." @keydown.esc="branchPickerRepo = null" ref="branchSearchInput" />
+                </div>
+                <div style="max-height: 300px; overflow-y: auto;">
+                  <div v-for="b in filteredBranches" :key="b" class="git-branch-option" :class="{active: b === branchPickerCurrent}" @click="doCheckoutBranch(b)">
+                    <span v-if="b === branchPickerCurrent" style="margin-right: 4px;">✓</span>
+                    {{ b }}
+                  </div>
+                  <div v-if="filteredBranches.length === 0" style="padding: 12px; color: var(--text-muted); font-size: 12px; text-align: center;">无匹配分支</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Active Repo Changes -->
+        <template v-if="activeGitRepo">
+          <!-- Commit Area -->
+          <div class="git-commit-area">
+            <textarea v-model="gitCommitMsg" class="git-commit-input" :placeholder="'消息 (按Enter 在\'' + activeGitRepoName + '\'上提交)'" @keydown.meta.enter="doGitCommit" @keydown.ctrl.enter="doGitCommit"></textarea>
+            <div style="display: flex; gap: 4px;">
+              <button class="git-commit-btn" style="flex: 1;" @click="doGitCommit">✓ 提交</button>
+              <button class="git-commit-btn" style="flex: 0; padding: 6px 8px; background: var(--bg-2); color: var(--text);" @click="doGitCommitAndSync" title="提交并同步">⇅</button>
+            </div>
+            <!-- Remote Actions -->
+            <div class="git-remote-bar">
+              <button class="git-remote-btn" @click="doGitPull" :disabled="gitRemoteLoading" title="拉取 (Pull)">↓ Pull</button>
+              <button class="git-remote-btn" @click="doGitPush" :disabled="gitRemoteLoading" title="推送 (Push)">↑ Push</button>
+              <button class="git-remote-btn" @click="doGitFetch" :disabled="gitRemoteLoading" title="获取 (Fetch)">⟳ Fetch</button>
+              <button class="git-remote-btn" @click="doGitStash" :disabled="gitRemoteLoading" title="暂存储藏 (Stash)">📦 Stash</button>
+              <button class="git-remote-btn" @click="doGitStashPop" :disabled="gitRemoteLoading" title="弹出储藏 (Stash Pop)">📤 Pop</button>
+            </div>
+            <div v-if="gitRemoteLoading" style="text-align: center; font-size: 11px; color: var(--text-muted);">⏳ 操作进行中...</div>
+          </div>
+
+          <!-- Merge Conflicts -->
+          <div v-if="gitConflicts.length > 0" class="git-section">
+            <div class="git-section-header" style="color: var(--red);" @click="gitSectionsCollapsed.conflicts = !gitSectionsCollapsed.conflicts">
+              <span>{{ gitSectionsCollapsed.conflicts ? '▶' : '▼' }} ⚠ 合并冲突 ({{ gitConflicts.length }})</span>
+            </div>
+            <div v-show="!gitSectionsCollapsed.conflicts">
+              <div v-for="file in gitConflicts" :key="file.path" class="git-file-item" @click="openGitDiff(file, false)" @contextmenu.prevent="showGitCtxMenu($event, file, 'conflict')">
+                <span class="git-file-name" :title="file.path">{{ file.path.split('/').pop() }}</span>
+                <span class="git-file-dir">{{ file.path.split('/').slice(0,-1).join('/') || '.' }}</span>
+                <div class="git-actions">
+                  <button class="git-action-btn" @click.stop="doGitResolve(file.path, 'ours')" title="接受当前 (Ours)">◀</button>
+                  <button class="git-action-btn" @click.stop="doGitResolve(file.path, 'theirs')" title="接受传入 (Theirs)">▶</button>
+                  <button class="git-action-btn" @click.stop="doGitStage(file.path)" title="标记已解决">✓</button>
+                </div>
+                <span class="git-file-badge badge-C">C</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Staged Changes -->
+          <div v-if="gitStaged.length > 0" class="git-section">
+            <div class="git-section-header" @click="gitSectionsCollapsed.staged = !gitSectionsCollapsed.staged">
+              <span>{{ gitSectionsCollapsed.staged ? '▶' : '▼' }} 暂存的更改 ({{ gitStaged.length }})</span>
+              <div class="git-section-actions">
+                <button class="git-icon-btn" @click.stop="doGitUnstageAll" title="全部取消暂存">−</button>
+              </div>
+            </div>
+            <div v-show="!gitSectionsCollapsed.staged">
+              <div v-for="file in gitStaged" :key="file.path" class="git-file-item" :class="{active: gitActiveFile === file.path}" @click="openGitDiff(file, true)" @contextmenu.prevent="showGitCtxMenu($event, file, 'staged')">
+                <span class="git-file-name" :title="file.path">{{ file.path.split('/').pop() }}</span>
+                <span class="git-file-dir">{{ file.path.split('/').slice(0,-1).join('/') || '.' }}</span>
+                <div class="git-actions">
+                  <button class="git-action-btn" @click.stop="doGitUnstage(file.path)" title="取消暂存">−</button>
+                </div>
+                <span class="git-file-badge" :class="'badge-' + file.status">{{ file.status }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Changes -->
+          <div v-if="gitChanges.length > 0" class="git-section">
+            <div class="git-section-header" @click="gitSectionsCollapsed.changes = !gitSectionsCollapsed.changes">
+              <span>{{ gitSectionsCollapsed.changes ? '▶' : '▼' }} 更改 ({{ gitChanges.length }})</span>
+              <div class="git-section-actions">
+                <button class="git-icon-btn" @click.stop="doGitStageAll" title="全部暂存">＋</button>
+                <button class="git-icon-btn" @click.stop="doGitDiscardAll" title="全部放弃">↩</button>
+              </div>
+            </div>
+            <div v-show="!gitSectionsCollapsed.changes">
+              <div v-for="file in gitChanges" :key="file.path" class="git-file-item" :class="{active: gitActiveFile === file.path}" @click="openGitDiff(file, false)" @contextmenu.prevent="showGitCtxMenu($event, file, 'change')">
+                <span class="git-file-name" :title="file.path">{{ file.path.split('/').pop() }}</span>
+                <span class="git-file-dir">{{ file.path.split('/').slice(0,-1).join('/') || '.' }}</span>
+                <div class="git-actions">
+                  <button class="git-action-btn" @click.stop="doGitDiscard(file.path)" title="放弃更改">↩</button>
+                  <button class="git-action-btn" @click.stop="doGitStage(file.path)" title="暂存更改">＋</button>
+                </div>
+                <span class="git-file-badge" :class="'badge-' + file.status">{{ file.status }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="gitStaged.length === 0 && gitChanges.length === 0 && gitConflicts.length === 0" style="padding: 16px; color: var(--text-muted); font-size: 12px; text-align: center;">
+            当前仓库没有未提交的更改
+          </div>
+
+          <!-- Right-click Context Menu -->
+          <div v-if="gitCtxMenu.show" class="git-ctx-menu" :style="{top: gitCtxMenu.y + 'px', left: gitCtxMenu.x + 'px'}">
+            <div class="git-ctx-item" @click="gitCtxAction('diff')">查看更改</div>
+            <div v-if="gitCtxMenu.type === 'change'" class="git-ctx-item" @click="gitCtxAction('stage')">暂存更改</div>
+            <div v-if="gitCtxMenu.type === 'staged'" class="git-ctx-item" @click="gitCtxAction('unstage')">取消暂存</div>
+            <div v-if="gitCtxMenu.type === 'change'" class="git-ctx-item git-ctx-danger" @click="gitCtxAction('discard')">放弃更改</div>
+            <div v-if="gitCtxMenu.type === 'conflict'" class="git-ctx-sep"></div>
+            <div v-if="gitCtxMenu.type === 'conflict'" class="git-ctx-item" @click="gitCtxAction('ours')">接受当前更改 (Ours)</div>
+            <div v-if="gitCtxMenu.type === 'conflict'" class="git-ctx-item" @click="gitCtxAction('theirs')">接受传入更改 (Theirs)</div>
+            <div v-if="gitCtxMenu.type === 'conflict'" class="git-ctx-item" @click="gitCtxAction('stage')">标记为已解决</div>
+          </div>
+        </template>
+
+        <!-- Status Bar at bottom of sidebar -->
+        <div style="position: sticky; bottom: 0; z-index: 10; margin-top: auto; border-top: 1px solid var(--border); padding: 8px 12px; background: var(--bg-1); display: flex; align-items: center; gap: 8px; font-size: 11px;">
+          <span v-if="activeGitRepo" class="git-repo-branch" style="background: rgba(99, 102, 241, 0.15); color: var(--purple); font-weight: bold; border-radius: 4px; padding: 4px 8px; display: inline-flex; align-items: center; gap: 4px;" @click="openBranchPicker(activeGitRepo)" title="切换分支">
+            🔀 {{ gitBranch }}
+          </span>
+          <span v-if="activeGitRepo" style="color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;">{{ activeGitRepoName }}</span>
+        </div>
+      </div>
+
+      <!-- Git Diff Editor -->
+      <div style="flex: 1; display: flex; flex-direction: column; background: var(--bg-0); overflow: hidden;">
+        <div v-if="gitActiveFile" style="display: flex; flex-direction: column; height: 100%;">
+          <div style="padding: 8px 16px; background: var(--bg-1); border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+              <span style="font-weight: 600; font-family: var(--font-mono); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ gitActiveFile }}</span>
+              <span style="color: var(--text-muted); font-size: 11px; white-space: nowrap;">({{ gitActiveFileStaged ? 'Index' : 'Working Tree' }})</span>
+            </div>
+            <button class="git-icon-btn" @click="gitActiveFile = null">✕</button>
+          </div>
+          <div style="flex: 1; overflow: hidden;">
+            <vue-monaco-diff-editor
+              v-if="gitShowDiff"
+              theme="vs-dark"
+              :original="gitOriginalContent"
+              :modified="gitModifiedContent"
+              :language="gitFileLanguage"
+              :options="{ renderSideBySide: true, readOnly: true, minimap: { enabled: false } }"
+            />
+          </div>
+        </div>
+        <div v-else style="flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-muted); flex-direction: column; gap: 16px;">
+          <div style="font-size: 48px;">🌿</div>
+          <div v-if="gitRepoInfos.length === 0" style="text-align: center;">
+            <div style="font-size: 14px; margin-bottom: 8px;">尚未添加任何仓库</div>
+            <button class="btn-primary" style="font-size: 13px;" @click="scanGitRepos">选择工作目录并扫描</button>
+          </div>
+          <div v-else style="font-size: 14px;">点击左侧文件查看 Diff 对比</div>
+        </div>
+      </div>
+    </div>
     <!-- ======================= Dev Tools App ======================= -->
     <div class="sub-app tools-app" v-show="currentApp === 'tools'" style="display: flex; flex-direction: row; height: 100%; overflow: hidden;">
       <!-- Sidebar -->
@@ -967,6 +1156,18 @@
         {{ toast.msg }}
       </div>
     </transition>
+    <!-- Git Askpass Modal -->
+    <div v-if="askpass.show" class="git-branch-picker-overlay">
+      <div class="git-branch-picker" style="padding: 16px;">
+        <div style="font-weight: bold; margin-bottom: 8px;">Git 身份验证</div>
+        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">{{ askpass.prompt }}</div>
+        <input v-model="askpass.password" type="password" class="git-commit-input" style="width: 100%; height: auto; padding: 8px; margin-bottom: 12px;" placeholder="输入密码 / Token..." @keydown.enter="submitAskpass" ref="askpassInput" />
+        <div style="display: flex; justify-content: flex-end; gap: 8px;">
+          <button class="git-remote-btn" style="padding: 6px 16px;" @click="cancelAskpass">取消</button>
+          <button class="git-commit-btn" @click="submitAskpass">确认</button>
+        </div>
+      </div>
+    </div>
 
   </div>
 </template>
@@ -977,6 +1178,7 @@ import VueJsonPretty from 'vue-json-pretty'
 import 'vue-json-pretty/lib/styles.css'
 import { JSONEditor } from 'vanilla-jsoneditor'
 import 'vanilla-jsoneditor/themes/jse-theme-dark.css'
+import { VueMonacoDiffEditor } from '@guolao/vue-monaco-editor'
 
 // ── Electron API bridge ───────────────────────────────────────────────────────
 const isElectron = typeof window !== 'undefined' && !!window.electronAPI
@@ -1111,6 +1313,19 @@ const scanProjects = async () => {
     } else {
       showToast('扫描失败: ' + res.msg, 'error')
     }
+    
+    // Auto scan for git repositories
+    const gitRes = await api.gitScan(projectRootDir.value)
+    if (gitRes.ok && gitRes.repos.length > 0) {
+      const existing = new Set(gitRepos.value)
+      gitRes.repos.forEach(repo => existing.add(repo))
+      gitRepos.value = Array.from(existing)
+      localStorage.setItem('gitRepos', JSON.stringify(gitRepos.value))
+      if (!activeGitRepo.value || !gitRepos.value.includes(activeGitRepo.value)) {
+        activeGitRepo.value = gitRepos.value[0]
+        localStorage.setItem('activeGitRepo', activeGitRepo.value)
+      }
+    }
   } catch (err) {
     showToast('发生错误', 'error')
   } finally {
@@ -1166,6 +1381,403 @@ const openInChrome = async (url) => {
     showToast('无法打开 Chrome: ' + res.msg, 'error')
   }
 }
+
+// --- Git Source Control ---
+const gitRepos = ref(JSON.parse(localStorage.getItem('gitRepos') || '[]'))
+const activeGitRepo = ref(localStorage.getItem('activeGitRepo') || '')
+const gitRepoInfos = ref([])  // [{path, name, branch}]
+const gitStaged = ref([])
+const gitChanges = ref([])
+const gitCommitMsgs = ref({})
+const gitCommitMsg = computed({
+  get: () => gitCommitMsgs.value[activeGitRepo.value] || '',
+  set: (val) => {
+    if (activeGitRepo.value) {
+      gitCommitMsgs.value = { ...gitCommitMsgs.value, [activeGitRepo.value]: val }
+    }
+  }
+})
+const gitSectionsCollapsed = ref({ repos: false, staged: false, changes: false })
+const gitActiveFile = ref(null)
+const gitActiveFileStaged = ref(false)
+const gitOriginalContent = ref('')
+const gitModifiedContent = ref('')
+const gitShowDiff = ref(false)
+
+const activeGitRepoName = computed(() => {
+  if (!activeGitRepo.value) return ''
+  return activeGitRepo.value.split('/').pop()
+})
+
+const gitBranch = computed(() => {
+  const info = gitRepoInfos.value.find(r => r.path === activeGitRepo.value)
+  return info ? info.branch : 'master'
+})
+
+// Scan a chosen workspace directory for all .git repos
+const scanGitRepos = async () => {
+  const res = await api.selectProjectDir()
+  if (!res.ok || !res.path) return
+  const scanRes = await api.gitScan(res.path)
+  if (scanRes.ok && scanRes.repos.length > 0) {
+    const existing = new Set(gitRepos.value)
+    scanRes.repos.forEach(r => existing.add(r))
+    gitRepos.value = Array.from(existing)
+    localStorage.setItem('gitRepos', JSON.stringify(gitRepos.value))
+    showToast(`扫描到 ${scanRes.repos.length} 个仓库`, 'success')
+    await refreshAllRepoInfos()
+    if (!activeGitRepo.value || !gitRepos.value.includes(activeGitRepo.value)) {
+      switchRepo(gitRepos.value[0])
+    }
+  } else {
+    showToast('该目录下没有发现 Git 仓库', 'warn')
+  }
+}
+
+const addGitRepo = async () => {
+  const res = await api.selectProjectDir()
+  if (res.ok && res.path) {
+    if (!gitRepos.value.includes(res.path)) {
+      gitRepos.value.push(res.path)
+      localStorage.setItem('gitRepos', JSON.stringify(gitRepos.value))
+    }
+    await refreshAllRepoInfos()
+    switchRepo(res.path)
+  }
+}
+
+const removeGitRepo = (path) => {
+  gitRepos.value = gitRepos.value.filter(r => r !== path)
+  localStorage.setItem('gitRepos', JSON.stringify(gitRepos.value))
+  gitRepoInfos.value = gitRepoInfos.value.filter(r => r.path !== path)
+  if (activeGitRepo.value === path) {
+    activeGitRepo.value = gitRepos.value[0] || ''
+    localStorage.setItem('activeGitRepo', activeGitRepo.value)
+    if (activeGitRepo.value) loadGitStatus()
+    else { gitStaged.value = []; gitChanges.value = [] }
+  }
+}
+
+// Load branch info for ALL repos
+const refreshAllRepoInfos = async () => {
+  const infos = []
+  for (const repoPath of gitRepos.value) {
+    try {
+      const res = await api.gitStatus(repoPath)
+      infos.push({
+        path: repoPath,
+        name: repoPath.split('/').pop(),
+        branch: res.ok ? (res.status.current || 'detached') : '?',
+      })
+    } catch {
+      infos.push({ path: repoPath, name: repoPath.split('/').pop(), branch: '?' })
+    }
+  }
+  gitRepoInfos.value = infos
+}
+
+const switchRepo = (path) => {
+  activeGitRepo.value = path
+  localStorage.setItem('activeGitRepo', path)
+  loadGitStatus()
+}
+
+// Branch Picker
+const branchPickerRepo = ref(null)
+const branchPickerCurrent = ref('')
+const branchList = ref([])
+const branchSearch = ref('')
+const branchSearchInput = ref(null)
+
+const filteredBranches = computed(() => {
+  if (!branchSearch.value) return branchList.value
+  const q = branchSearch.value.toLowerCase()
+  return branchList.value.filter(b => b.toLowerCase().includes(q))
+})
+
+const openBranchPicker = async (repoPath) => {
+  branchPickerRepo.value = repoPath
+  branchSearch.value = ''
+  const info = gitRepoInfos.value.find(r => r.path === repoPath)
+  branchPickerCurrent.value = info ? info.branch : ''
+  const res = await api.gitBranch(repoPath)
+  if (res.ok && res.branches) {
+    branchList.value = res.branches
+  }
+  nextTick(() => { branchSearchInput.value?.focus?.() })
+}
+
+const doCheckoutBranch = async (branch) => {
+  if (!branchPickerRepo.value) return
+  const res = await api.gitCheckout(branchPickerRepo.value, branch)
+  if (res.ok) {
+    showToast(`已切换到 ${branch}`, 'success')
+    branchPickerRepo.value = null
+    await refreshAllRepoInfos()
+    if (activeGitRepo.value) loadGitStatus()
+  } else {
+    showToast('切换分支失败: ' + res.msg, 'error')
+  }
+}
+
+const loadGitStatus = async () => {
+  if (!activeGitRepo.value) return
+  try {
+    const statusRes = await api.gitStatus(activeGitRepo.value)
+    if (statusRes.ok && statusRes.status) {
+      // Update branch in repoInfos
+      const info = gitRepoInfos.value.find(r => r.path === activeGitRepo.value)
+      if (info) info.branch = statusRes.status.current || 'detached'
+
+      const staged = []
+      const changes = []
+      const conflicts = []
+      statusRes.status.files.forEach(f => {
+        // Merge conflict: both sides modified (U in index or working_dir)
+        if (f.index === 'U' || f.working_dir === 'U' || (f.index === 'A' && f.working_dir === 'A')) {
+          conflicts.push({ path: f.path, status: 'C' })
+          return
+        }
+        if (f.index && f.index !== ' ' && f.index !== '?') {
+          staged.push({ path: f.path, status: f.index })
+        }
+        if (f.working_dir && f.working_dir !== ' ' && f.working_dir !== '?') {
+          changes.push({ path: f.path, status: f.working_dir })
+        } else if (f.index === '?' && f.working_dir === '?') {
+          changes.push({ path: f.path, status: 'U' })
+        }
+      })
+      gitStaged.value = staged
+      gitChanges.value = changes
+      gitConflicts.value = conflicts
+    }
+  } catch (e) {
+    showToast('Failed to load git status: ' + e.message, 'error')
+  }
+}
+
+const doGitStage = async (file) => {
+  await api.gitStage(activeGitRepo.value, file)
+  await loadGitStatus()
+}
+const doGitUnstage = async (file) => {
+  await api.gitUnstage(activeGitRepo.value, file)
+  await loadGitStatus()
+}
+const doGitStageAll = async () => {
+  for (const f of gitChanges.value) await api.gitStage(activeGitRepo.value, f.path)
+  await loadGitStatus()
+}
+const doGitUnstageAll = async () => {
+  for (const f of gitStaged.value) await api.gitUnstage(activeGitRepo.value, f.path)
+  await loadGitStatus()
+}
+const doGitDiscard = async (file) => {
+  await api.gitDiscard(activeGitRepo.value, file)
+  await loadGitStatus()
+  if (gitActiveFile.value === file) {
+    gitActiveFile.value = null
+    gitShowDiff.value = false
+  }
+}
+const doGitDiscardAll = async () => {
+  for (const f of gitChanges.value) await api.gitDiscard(activeGitRepo.value, f.path)
+  await loadGitStatus()
+  gitActiveFile.value = null
+  gitShowDiff.value = false
+}
+const doGitCommit = async () => {
+  if (!gitCommitMsg.value) {
+    showToast('请输入提交信息', 'warn')
+    return
+  }
+  if (gitStaged.value.length === 0) {
+    showToast('没有暂存的更改可提交', 'warn')
+    return
+  }
+  const res = await api.gitCommit(activeGitRepo.value, gitCommitMsg.value)
+  if (res.ok) {
+    showToast('提交成功', 'success')
+    gitCommitMsg.value = ''
+    await loadGitStatus()
+    gitActiveFile.value = null
+    gitShowDiff.value = false
+  } else {
+    showToast('提交失败: ' + res.msg, 'error')
+  }
+}
+// --- Git Askpass (Authentication) ---
+const askpass = ref({ show: false, reqId: null, prompt: '', password: '' })
+const askpassInput = ref(null)
+
+const submitAskpass = () => {
+  if (askpass.value.reqId !== null) {
+    api.gitAskpassReply(askpass.value.reqId, askpass.value.password)
+  }
+  askpass.value.show = false
+  askpass.value.password = ''
+  askpass.value.reqId = null
+}
+
+const cancelAskpass = () => {
+  if (askpass.value.reqId !== null) {
+    api.gitAskpassReply(askpass.value.reqId, '')
+  }
+  askpass.value.show = false
+  askpass.value.password = ''
+  askpass.value.reqId = null
+}
+
+// --- Remote Operations ---
+const gitRemoteLoading = ref(false)
+const gitConflicts = ref([])
+
+const handleGitError = (action, msg) => {
+  const errMsg = msg.toLowerCase()
+  if (errMsg.includes('authentication failed') || errMsg.includes('could not read from remote repository')) {
+    showToast(`${action} 失败: 请配置 SSH 密钥或凭据管理器 (如 osxkeychain) 解决鉴权问题。`, 'error')
+  } else {
+    showToast(`${action} 失败: ${msg}`, 'error')
+  }
+}
+
+const doGitPull = async () => {
+  if (!activeGitRepo.value) return
+  gitRemoteLoading.value = true
+  try {
+    const res = await api.gitPull(activeGitRepo.value)
+    if (res.ok) {
+      showToast(`Pull 完成`, 'success')
+    } else {
+      handleGitError('Pull', res.msg)
+    }
+    await loadGitStatus()
+    await refreshAllRepoInfos()
+  } finally { gitRemoteLoading.value = false }
+}
+
+const doGitPush = async () => {
+  if (!activeGitRepo.value) return
+  gitRemoteLoading.value = true
+  try {
+    const res = await api.gitPush(activeGitRepo.value)
+    if (res.ok) showToast('Push 成功', 'success')
+    else handleGitError('Push', res.msg)
+  } finally { gitRemoteLoading.value = false }
+}
+
+const doGitFetch = async () => {
+  if (!activeGitRepo.value) return
+  gitRemoteLoading.value = true
+  try {
+    const res = await api.gitFetch(activeGitRepo.value)
+    if (res.ok) showToast('Fetch 完成', 'success')
+    else handleGitError('Fetch', res.msg)
+    await refreshAllRepoInfos()
+  } finally { gitRemoteLoading.value = false }
+}
+
+const doGitStashOp = async () => {
+  if (!activeGitRepo.value) return
+  gitRemoteLoading.value = true
+  try {
+    const res = await api.gitStash(activeGitRepo.value)
+    if (res.ok) { showToast('Stash 成功', 'success'); await loadGitStatus() }
+    else showToast('Stash 失败: ' + res.msg, 'error')
+  } finally { gitRemoteLoading.value = false }
+}
+
+const doGitStashPop = async () => {
+  if (!activeGitRepo.value) return
+  gitRemoteLoading.value = true
+  try {
+    const res = await api.gitStashPop(activeGitRepo.value)
+    if (res.ok) { showToast('Stash Pop 成功', 'success'); await loadGitStatus() }
+    else showToast('Stash Pop 失败: ' + res.msg, 'error')
+  } finally { gitRemoteLoading.value = false }
+}
+
+// Alias for template
+const doGitStash = doGitStashOp
+
+const doGitCommitAndSync = async () => {
+  await doGitCommit()
+  if (gitStaged.value.length === 0 && !gitCommitMsg.value) {
+    // Commit succeeded, now push
+    await doGitPush()
+  }
+}
+
+// --- Conflict Resolution ---
+const doGitResolve = async (file, strategy) => {
+  const res = await api.gitResolveConflict(activeGitRepo.value, file, strategy)
+  if (res.ok) {
+    showToast(`已解决: ${strategy === 'ours' ? '接受当前' : '接受传入'}`, 'success')
+    await loadGitStatus()
+  } else {
+    showToast('解决冲突失败: ' + res.msg, 'error')
+  }
+}
+
+// --- Right-click Context Menu ---
+const gitCtxMenu = ref({ show: false, x: 0, y: 0, file: null, type: '' })
+
+const showGitCtxMenu = (event, file, type) => {
+  gitCtxMenu.value = { show: true, x: event.clientX, y: event.clientY, file, type }
+}
+
+const hideGitCtxMenu = () => { gitCtxMenu.value.show = false }
+
+const gitCtxAction = async (action) => {
+  const file = gitCtxMenu.value.file
+  hideGitCtxMenu()
+  if (!file) return
+  switch (action) {
+    case 'diff': openGitDiff(file, gitCtxMenu.value.type === 'staged'); break
+    case 'stage': await doGitStage(file.path); break
+    case 'unstage': await doGitUnstage(file.path); break
+    case 'discard': await doGitDiscard(file.path); break
+    case 'ours': await doGitResolve(file.path, 'ours'); break
+    case 'theirs': await doGitResolve(file.path, 'theirs'); break
+  }
+}
+
+// Close context menu on click anywhere
+if (typeof window !== 'undefined') {
+  window.addEventListener('click', hideGitCtxMenu)
+}
+
+const getLanguageFromPath = (path) => {
+  const ext = path.split('.').pop().toLowerCase()
+  const map = {
+    'js': 'javascript', 'jsx': 'javascript', 'ts': 'typescript', 'tsx': 'typescript',
+    'vue': 'html', 'html': 'html', 'css': 'css', 'json': 'json', 'md': 'markdown',
+    'py': 'python', 'java': 'java', 'c': 'c', 'h': 'c', 'sh': 'shell'
+  }
+  return map[ext] || 'plaintext'
+}
+const gitFileLanguage = computed(() => gitActiveFile.value ? getLanguageFromPath(gitActiveFile.value) : 'plaintext')
+
+const openGitDiff = async (file, isStaged) => {
+  gitActiveFile.value = file.path
+  gitActiveFileStaged.value = isStaged
+  gitShowDiff.value = false
+  const res = await api.gitDiff(activeGitRepo.value, file.path, isStaged)
+  if (res.ok) {
+    gitOriginalContent.value = res.original
+    gitModifiedContent.value = res.modified
+    nextTick(() => { gitShowDiff.value = true })
+  } else {
+    showToast('Failed to load diff: ' + res.msg, 'error')
+  }
+}
+
+watch(currentApp, (val) => {
+  if (val === 'git') {
+    refreshAllRepoInfos()
+    if (activeGitRepo.value) loadGitStatus()
+  }
+})
 
 const toolsActiveView = ref('json')
 
@@ -1330,6 +1942,16 @@ onMounted(() => {
           // You can handle updates here if needed
         }
       }
+    })
+  }
+  
+  if (window.api && window.api.onGitAskpass) {
+    window.api.onGitAskpass((data) => {
+      askpass.value.show = true
+      askpass.value.prompt = data.prompt
+      askpass.value.reqId = data.reqId
+      askpass.value.password = ''
+      nextTick(() => { askpassInput.value?.focus?.() })
     })
   }
 })
@@ -3450,5 +4072,268 @@ onUnmounted(() => {
   background: rgba(99, 102, 241, 0.15);
   color: var(--purple);
   border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+/* ─── Git Source Control ─────────────────────────────────────────────────── */
+.git-sidebar {
+  width: 300px;
+  background: var(--bg-1);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.git-sidebar-header {
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+.git-icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1;
+}
+.git-icon-btn:hover {
+  background: rgba(255,255,255,0.1);
+  color: var(--text);
+}
+
+/* Sections */
+.git-section {}
+.git-section-header {
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid var(--border);
+}
+.git-section-header:hover { color: var(--text); }
+.git-section-actions { display: none; gap: 2px; }
+.git-section-header:hover .git-section-actions { display: flex; }
+
+/* Repo List Items */
+.git-repo-item {
+  display: flex;
+  align-items: center;
+  padding: 5px 12px 5px 20px;
+  cursor: pointer;
+  font-size: 12px;
+  gap: 6px;
+  color: var(--text);
+  position: relative;
+}
+.git-repo-item:hover { background: var(--bg-2); }
+.git-repo-item.active {
+  background: rgba(99, 102, 241, 0.12);
+  border-left: 2px solid var(--purple);
+  padding-left: 18px;
+}
+.git-repo-icon { font-size: 13px; flex-shrink: 0; }
+.git-repo-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.git-repo-branch {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.git-repo-remove { display: none; margin-left: 4px; font-size: 10px; }
+.git-repo-item:hover .git-repo-remove { display: inline-block; }
+.git-repo-branch { cursor: pointer; border-radius: 3px; padding: 1px 4px; }
+.git-repo-branch:hover { background: rgba(255,255,255,0.1); }
+
+/* Branch Picker */
+.git-branch-picker-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 9999;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 20vh;
+}
+.git-branch-picker {
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 400px;
+  max-width: 90vw;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  overflow: hidden;
+}
+.git-branch-option {
+  padding: 6px 16px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+.git-branch-option:hover { background: var(--bg-2); }
+.git-branch-option.active { color: var(--purple); font-weight: bold; }
+
+/* Commit Area */
+.git-commit-area {
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+}
+.git-commit-input {
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12px;
+  padding: 6px 8px;
+  height: 50px;
+  resize: none;
+  font-family: var(--font-main);
+}
+.git-commit-input:focus { border-color: var(--purple); outline: none; }
+.git-commit-btn {
+  background: var(--purple);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.git-commit-btn:hover { background: #7c3aed; }
+
+/* File Items */
+.git-file-item {
+  display: flex;
+  align-items: center;
+  padding: 4px 12px 4px 28px;
+  cursor: pointer;
+  font-size: 12px;
+  gap: 4px;
+  position: relative;
+}
+.git-file-item:hover { background: var(--bg-2); }
+.git-file-item.active { background: rgba(99, 102, 241, 0.15); }
+.git-file-name {
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.git-file-dir {
+  color: var(--text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+.git-file-badge {
+  font-size: 10px;
+  font-weight: bold;
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.git-file-badge.badge-M { color: var(--yellow); }
+.git-file-badge.badge-A { color: var(--green); }
+.git-file-badge.badge-D { color: var(--red); }
+.git-file-badge.badge-U { color: #22c55e; }
+.git-actions {
+  display: none;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.git-file-item:hover .git-actions { display: flex; }
+.git-action-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+.git-action-btn:hover {
+  background: rgba(255,255,255,0.12);
+  color: var(--text);
+}
+
+/* Remote & Context Menu */
+.git-remote-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 0;
+}
+.git-remote-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.git-remote-btn:hover:not(:disabled) {
+  background: rgba(255,255,255,0.05);
+  color: var(--text);
+}
+.git-remote-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.git-file-badge.badge-C { color: var(--red); font-weight: bold; }
+
+.git-ctx-menu {
+  position: fixed;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  min-width: 160px;
+  z-index: 10000;
+  padding: 4px 0;
+  font-size: 12px;
+}
+.git-ctx-item {
+  padding: 6px 12px;
+  cursor: pointer;
+  color: var(--text);
+}
+.git-ctx-item:hover {
+  background: var(--bg-2);
+}
+.git-ctx-danger { color: var(--red); }
+.git-ctx-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
 }
 </style>
