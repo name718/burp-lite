@@ -452,8 +452,26 @@
                 <select v-model="repeaterMethod" class="builder-select">
                   <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option><option>PATCH</option><option>OPTIONS</option><option>HEAD</option>
                 </select>
-                <input v-model="repeaterPath" class="builder-input path-input" placeholder="/api/path?query=1" />
+                <input v-model="repeaterPath" @input="syncPathToParams" class="builder-input path-input" placeholder="/api/path?query=1" />
                 <input v-model="repeaterProto" class="builder-input proto-input" />
+              </div>
+              
+              <div class="builder-section">
+                <div class="builder-section-title">
+                  <span>Query Params</span>
+                  <button class="btn-sm btn-outline" @click="addRepeaterQueryParam">➕ Add</button>
+                </div>
+                <div class="builder-headers" style="max-height: 180px;">
+                  <div v-for="(p, i) in repeaterQueryParams" :key="i" class="header-row">
+                    <input type="checkbox" v-model="p.enabled" @change="syncParamsToPath" title="Enable/Disable" style="margin-right: 4px; cursor: pointer;" />
+                    <input v-model="p.key" @input="syncParamsToPath" placeholder="Key" class="builder-input hdr-key" />
+                    <input v-model="p.val" @input="syncParamsToPath" placeholder="Value" class="builder-input hdr-val" />
+                    <button class="btn-icon delete-btn" @click="removeRepeaterQueryParam(i)" title="Remove">✕</button>
+                  </div>
+                  <div v-if="repeaterQueryParams.length === 0" class="empty-headers" @click="addRepeaterQueryParam">
+                    No query parameters. Click here to add one.
+                  </div>
+                </div>
               </div>
               
               <div class="builder-section">
@@ -576,6 +594,7 @@ const repeaterReqTab  = ref('raw')
 const repeaterMethod  = ref('GET')
 const repeaterPath    = ref('/')
 const repeaterProto   = ref('HTTP/1.1')
+const repeaterQueryParams = ref([])
 const repeaterHeaders = ref([])
 const repeaterBody    = ref('')
 const repeaterResp    = ref('')
@@ -996,6 +1015,7 @@ function switchRepeaterTab(tab) {
     repeaterMethod.value = method || 'GET'
     repeaterPath.value = path || '/'
     repeaterProto.value = proto || 'HTTP/1.1'
+    syncPathToParams()
     
     const hdrs = []
     for (let i = 1; i < lines.length; i++) {
@@ -1019,6 +1039,45 @@ function switchRepeaterTab(tab) {
     repeaterReq.value = raw
   }
   repeaterReqTab.value = tab
+}
+
+function syncPathToParams() {
+  const urlParts = repeaterPath.value.split('?')
+  const params = []
+  if (urlParts.length > 1) {
+    const qs = urlParts.slice(1).join('?')
+    if (qs) {
+      const pairs = qs.split('&')
+      for (const p of pairs) {
+        if (!p) continue
+        const [k, v] = p.split('=')
+        params.push({ key: decodeURIComponent(k || ''), val: decodeURIComponent(v || ''), enabled: true })
+      }
+    }
+  }
+  repeaterQueryParams.value = params
+}
+
+function syncParamsToPath() {
+  const urlParts = repeaterPath.value.split('?')
+  let base = urlParts[0] || '/'
+  const activeParams = repeaterQueryParams.value.filter(p => p.enabled && p.key)
+  if (activeParams.length > 0) {
+    const qs = activeParams.map(p => `${encodeURIComponent(p.key)}=${encodeURIComponent(p.val || '')}`).join('&')
+    repeaterPath.value = base + '?' + qs
+  } else {
+    repeaterPath.value = base
+  }
+}
+
+function addRepeaterQueryParam() {
+  repeaterQueryParams.value.push({ key: '', val: '', enabled: true })
+  syncParamsToPath()
+}
+
+function removeRepeaterQueryParam(idx) {
+  repeaterQueryParams.value.splice(idx, 1)
+  syncParamsToPath()
 }
 
 function addRepeaterHeader() {
