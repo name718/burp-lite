@@ -498,14 +498,25 @@
             </div>
           </div>
           <div class="repeater-col">
-            <div class="repeater-col-header">
-              📨 Response
-              <span v-if="repeaterStatus" class="badge-status" :class="statusClass(repeaterStatus)">
-                {{ repeaterStatus }}
-              </span>
-              <span v-if="repeaterMs" class="muted">{{ repeaterMs }}ms</span>
+            <div class="repeater-col-header" style="justify-content: space-between; display: flex; align-items: center;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-weight: 600;">📨 Response</span>
+                <span v-if="repeaterStatus" class="badge-status" :class="statusClass(repeaterStatus)">
+                  {{ repeaterStatus }}
+                </span>
+                <span v-if="repeaterMs" class="muted">{{ repeaterMs }}ms</span>
+              </div>
+              <div class="repeater-tabs">
+                <button :class="{active: repeaterRespTab==='pretty'}" @click="repeaterRespTab='pretty'">Pretty</button>
+                <button :class="{active: repeaterRespTab==='raw'}" @click="repeaterRespTab='raw'">Raw</button>
+              </div>
             </div>
-            <pre class="raw-editor" style="overflow:auto; white-space:pre-wrap">{{ repeaterResp || '点击 Send 发送请求...' }}</pre>
+            
+            <div v-if="repeaterRespTab === 'pretty' && parsedRepeaterRespJson" class="json-viewer-wrap" style="flex:1; overflow:auto; background:var(--bg-color); padding: 10px;">
+              <vue-json-pretty :data="parsedRepeaterRespJson" :deep="3" showIcon showLineNumber :collapsedOnClickBrackets="true" />
+            </div>
+            <pre v-else-if="repeaterRespTab === 'pretty' && !parsedRepeaterRespJson" class="raw-editor" style="overflow:auto; white-space:pre-wrap">{{ repeaterResp ? 'Response is not valid JSON. View in Raw tab.' : '点击 Send 发送请求...' }}</pre>
+            <pre v-else class="raw-editor" style="overflow:auto; white-space:pre-wrap">{{ repeaterResp || '点击 Send 发送请求...' }}</pre>
           </div>
         </div>
       </section>
@@ -591,6 +602,7 @@ watch(interceptorOn, async () => {
 const repeaterTarget  = ref('http://127.0.0.1:8888')
 const repeaterReq     = ref('POST /api/user/login HTTP/1.1\r\nHost: api.example.com\r\nContent-Type: application/json\r\n\r\n{"user":"repeater"}')
 const repeaterReqTab  = ref('raw')
+const repeaterRespTab = ref('pretty')
 const repeaterMethod  = ref('GET')
 const repeaterPath    = ref('/')
 const repeaterProto   = ref('HTTP/1.1')
@@ -664,6 +676,22 @@ const parsedResponseJson = computed(() => {
     }
     return JSON.parse(raw)
   } catch (e) {
+    return null
+  }
+})
+
+const parsedRepeaterRespJson = computed(() => {
+  if (!repeaterResp.value) return null
+  const parts = repeaterResp.value.split(/\r?\n\r?\n/)
+  if (parts.length < 2) return null
+  const headers = parts[0].toLowerCase()
+  let body = parts.slice(1).join('\n\n')
+  if (headers.includes('transfer-encoding: chunked')) {
+    body = decodeChunkedBody(body)
+  }
+  try {
+    return JSON.parse(body)
+  } catch(e) {
     return null
   }
 })
