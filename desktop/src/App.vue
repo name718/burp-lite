@@ -814,26 +814,135 @@
     </div>
 
     <!-- ======================= Dev Tools App ======================= -->
-    <div class="sub-app tools-app" v-show="currentApp === 'tools'">
-      <div class="pane-toolbar" style="padding: 12px 20px; display: flex; gap: 16px; align-items: center;">
-        <h2 style="margin: 0; font-size: 16px; color: #fff;">🛠️ 开发者小工具 (Dev Tools)</h2>
-        <div style="width: 1px; height: 16px; background: var(--border);"></div>
-        <div style="display: flex; gap: 8px;">
-          <button class="toolbar-btn" style="background: var(--purple); color: white; font-weight: bold; padding: 4px 12px; border: 1px solid var(--border);">🌲 JSON 美化工具</button>
+    <div class="sub-app tools-app" v-show="currentApp === 'tools'" style="display: flex; flex-direction: row; height: 100%; overflow: hidden;">
+      <!-- Sidebar -->
+      <div style="width: 220px; background: var(--bg-1); border-right: 1px solid var(--border); display: flex; flex-direction: column;">
+        <div style="padding: 16px; font-size: 16px; font-weight: bold; color: #fff; border-bottom: 1px solid var(--border);">
+          🛠️ 开发者工具
+        </div>
+        <div style="display: flex; flex-direction: column; padding: 12px; gap: 8px; overflow-y: auto;">
+          <button class="tool-nav-btn" :class="{active: toolsActiveView === 'json'}" @click="toolsActiveView = 'json'">🌲 JSON 格式化</button>
+          <button class="tool-nav-btn" :class="{active: toolsActiveView === 'jwt'}" @click="toolsActiveView = 'jwt'">🔐 JWT 解码器</button>
+          <button class="tool-nav-btn" :class="{active: toolsActiveView === 'encode'}" @click="toolsActiveView = 'encode'">🔄 编码转换</button>
+          <button class="tool-nav-btn" :class="{active: toolsActiveView === 'time'}" @click="toolsActiveView = 'time'">⏰ 时间戳转换</button>
+          <button class="tool-nav-btn" :class="{active: toolsActiveView === 'qr'}" @click="toolsActiveView = 'qr'">📱 二维码生成</button>
+          <button class="tool-nav-btn" :class="{active: toolsActiveView === 'css'}" @click="toolsActiveView = 'css'">🎨 CSS 阴影生成</button>
+          <button class="tool-nav-btn" :class="{active: toolsActiveView === 'regex'}" @click="toolsActiveView = 'regex'">🔠 正则测试器</button>
         </div>
       </div>
-
       
-      <!-- View 2: JSON Beautifier -->
-      <div v-show="toolsActiveView === 'json'" style="display: flex; flex: 1; overflow: hidden; padding: 16px; gap: 16px;">
-        <div style="flex: 1; display: flex; flex-direction: column; background: var(--bg-1); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; position: relative;">
+      <!-- Content Area -->
+      <div style="flex: 1; display: flex; flex-direction: column; background: var(--bg-0); overflow: hidden; padding: 16px;">
+        
+        <!-- View: JSON Beautifier -->
+        <div v-show="toolsActiveView === 'json'" style="display: flex; flex: 1; flex-direction: column; background: var(--bg-1); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; position: relative;">
           <div style="padding: 12px; background: var(--bg-2); border-bottom: 1px solid var(--border); font-size: 13px; font-weight: bold; color: var(--green); display: flex; justify-content: space-between;">
             <span>🌲 高级 JSON 编辑与检索 (支持原生 Cmd+F, 自动格式化, 展开折叠)</span>
           </div>
           <div ref="jsonEditorContainer" class="jse-theme-dark" style="flex: 1; overflow: hidden; --jse-theme-color: #6366f1; --jse-theme-color-highlight: #4f46e5;"></div>
         </div>
-      </div>
 
+        <!-- View: JWT Decoder -->
+        <div v-show="toolsActiveView === 'jwt'" style="display: flex; flex: 1; gap: 16px; overflow: hidden;">
+          <div style="flex: 1; display: flex; flex-direction: column; background: var(--bg-1); border: 1px solid var(--border); border-radius: 8px; overflow: hidden;">
+            <div style="padding: 12px; background: var(--bg-2); border-bottom: 1px solid var(--border); font-size: 13px; font-weight: bold;">Encoded Token</div>
+            <textarea v-model="jwtInput" class="raw-editor" style="flex: 1; resize: none; padding: 12px; font-family: var(--font-mono); border: none;" placeholder="Paste JWT token here (eyJ...)"></textarea>
+          </div>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 16px;">
+            <div style="flex: 1; display: flex; flex-direction: column; background: var(--bg-1); border: 1px solid var(--border); border-radius: 8px; overflow: hidden;">
+              <div style="padding: 12px; background: var(--bg-2); border-bottom: 1px solid var(--border); font-size: 13px; font-weight: bold; color: var(--purple);">Header (Algorithm & Type)</div>
+              <pre class="raw-editor" style="flex: 1; padding: 12px; margin: 0; font-family: var(--font-mono); color: var(--text-muted); overflow: auto;">{{ jwtHeaderParsed }}</pre>
+            </div>
+            <div style="flex: 2; display: flex; flex-direction: column; background: var(--bg-1); border: 1px solid var(--border); border-radius: 8px; overflow: hidden;">
+              <div style="padding: 12px; background: var(--bg-2); border-bottom: 1px solid var(--border); font-size: 13px; font-weight: bold; color: var(--green);">Payload (Data)</div>
+              <pre class="raw-editor" style="flex: 1; padding: 12px; margin: 0; font-family: var(--font-mono); color: #fff; overflow: auto;">{{ jwtPayloadParsed }}</pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- View: Encode/Decode -->
+        <div v-show="toolsActiveView === 'encode'" style="display: flex; flex-direction: column; flex: 1; gap: 16px;">
+          <div style="display: flex; gap: 8px; background: var(--bg-1); padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
+            <button class="btn-primary" @click="encodeBase64">Base64 Encode</button>
+            <button class="toolbar-btn" style="border: 1px solid var(--border);" @click="decodeBase64">Base64 Decode</button>
+            <div style="width: 1px; background: var(--border); margin: 0 8px;"></div>
+            <button class="btn-primary" style="background: var(--green);" @click="encodeUrl">URL Encode</button>
+            <button class="toolbar-btn" style="border: 1px solid var(--border);" @click="decodeUrl">URL Decode</button>
+          </div>
+          <div style="display: flex; flex: 1; gap: 16px;">
+            <div style="flex: 1; display: flex; flex-direction: column; background: var(--bg-1); border: 1px solid var(--border); border-radius: 8px; overflow: hidden;">
+              <div style="padding: 12px; background: var(--bg-2); border-bottom: 1px solid var(--border); font-size: 13px; font-weight: bold;">Input</div>
+              <textarea v-model="encodeInput" class="raw-editor" style="flex: 1; resize: none; padding: 12px; font-family: var(--font-mono); border: none;" placeholder="Enter text here..."></textarea>
+            </div>
+            <div style="flex: 1; display: flex; flex-direction: column; background: var(--bg-1); border: 1px solid var(--border); border-radius: 8px; overflow: hidden;">
+              <div style="padding: 12px; background: var(--bg-2); border-bottom: 1px solid var(--border); font-size: 13px; font-weight: bold;">Output</div>
+              <textarea v-model="encodeOutput" class="raw-editor" style="flex: 1; resize: none; padding: 12px; font-family: var(--font-mono); border: none; color: var(--green);" readonly placeholder="Result will appear here..."></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- View: Timestamp -->
+        <div v-show="toolsActiveView === 'time'" style="display: flex; flex-direction: column; flex: 1; gap: 16px;">
+          <div style="background: var(--bg-1); padding: 16px; border-radius: 8px; border: 1px solid var(--border);">
+            <div style="margin-bottom: 16px; font-size: 14px;">当前 Unix 时间戳: <strong style="color: var(--green); cursor: pointer;" @click="tsInput = String(Math.floor(Date.now()/1000))">{{ Math.floor(Date.now()/1000) }}</strong></div>
+            <div style="display: flex; gap: 12px; align-items: center;">
+              <input v-model="tsInput" class="filter-input" placeholder="输入时间戳或日期字符串" style="flex: 1;" />
+              <button class="btn-primary" @click="convertTimestamp">转换</button>
+            </div>
+            <div v-if="tsOutput" style="margin-top: 16px; padding: 12px; background: var(--bg-0); border-radius: 4px; font-family: var(--font-mono);">
+              {{ tsOutput }}
+            </div>
+          </div>
+        </div>
+
+        <!-- View: QR Code -->
+        <div v-show="toolsActiveView === 'qr'" style="display: flex; flex-direction: column; flex: 1; gap: 16px;">
+          <div style="background: var(--bg-1); padding: 16px; border-radius: 8px; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px;">
+            <input v-model="qrInput" class="filter-input" placeholder="输入 URL 或文本以生成二维码" style="width: 100%;" />
+            <div style="display: flex; justify-content: center; padding: 24px; background: #fff; border-radius: 8px; align-self: center;" v-if="qrInput">
+              <img :src="'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(qrInput)" alt="QR Code" width="200" height="200" />
+            </div>
+          </div>
+        </div>
+
+        <!-- View: CSS Shadow -->
+        <div v-show="toolsActiveView === 'css'" style="display: flex; flex-direction: column; flex: 1; gap: 16px;">
+          <div style="display: flex; gap: 24px; background: var(--bg-1); padding: 24px; border-radius: 8px; border: 1px solid var(--border); flex: 1;">
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 16px;">
+              <label>X Offset <input type="range" v-model="cssX" min="-50" max="50" style="width: 100%;" /></label>
+              <label>Y Offset <input type="range" v-model="cssY" min="-50" max="50" style="width: 100%;" /></label>
+              <label>Blur <input type="range" v-model="cssBlur" min="0" max="100" style="width: 100%;" /></label>
+              <label>Spread <input type="range" v-model="cssSpread" min="-50" max="50" style="width: 100%;" /></label>
+              <label>Color <input type="color" v-model="cssColor" style="width: 100%;" /></label>
+            </div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px;">
+              <div :style="{ boxShadow: computedBoxShadow, width: '200px', height: '200px', background: 'var(--bg-2)', borderRadius: '16px' }"></div>
+              <pre class="raw-editor" style="padding: 12px; background: var(--bg-0); color: var(--green); border-radius: 4px;">box-shadow: {{ computedBoxShadow }};</pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- View: Regex -->
+        <div v-show="toolsActiveView === 'regex'" style="display: flex; flex-direction: column; flex: 1; gap: 16px;">
+          <div style="display: flex; gap: 8px;">
+            <span style="font-family: var(--font-mono); font-size: 20px; color: var(--purple);">/</span>
+            <input v-model="regexPattern" class="filter-input" style="flex: 1; font-family: var(--font-mono);" placeholder="Pattern (e.g. \d+)" />
+            <span style="font-family: var(--font-mono); font-size: 20px; color: var(--purple);">/</span>
+            <input v-model="regexFlags" class="filter-input" style="width: 80px; font-family: var(--font-mono);" placeholder="gmi" />
+          </div>
+          <div style="display: flex; flex: 1; gap: 16px;">
+            <div style="flex: 1; display: flex; flex-direction: column; background: var(--bg-1); border: 1px solid var(--border); border-radius: 8px; overflow: hidden;">
+              <div style="padding: 12px; background: var(--bg-2); border-bottom: 1px solid var(--border); font-size: 13px; font-weight: bold;">Test String</div>
+              <textarea v-model="regexInput" class="raw-editor" style="flex: 1; resize: none; padding: 12px; font-family: var(--font-mono); border: none;" placeholder="Enter string to test..."></textarea>
+            </div>
+            <div style="flex: 1; display: flex; flex-direction: column; background: var(--bg-1); border: 1px solid var(--border); border-radius: 8px; overflow: hidden;">
+              <div style="padding: 12px; background: var(--bg-2); border-bottom: 1px solid var(--border); font-size: 13px; font-weight: bold;">Match Result</div>
+              <div style="flex: 1; padding: 12px; overflow-y: auto; background: var(--bg-0); font-family: var(--font-mono); white-space: pre-wrap;" v-html="regexResultHtml"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
     </div>
 
     </div> <!-- end app-content -->
@@ -1228,6 +1337,84 @@ onMounted(() => {
 onUnmounted(() => {
   if (jsonEditorInstance) {
     jsonEditorInstance.destroy()
+  }
+})
+
+// --- JWT Decoder ---
+const jwtInput = ref('')
+const jwtHeaderParsed = computed(() => {
+  if (!jwtInput.value) return ''
+  try {
+    const p = jwtInput.value.split('.')[0]
+    return JSON.stringify(JSON.parse(atob(p)), null, 2)
+  } catch(e) { return 'Invalid Header' }
+})
+const jwtPayloadParsed = computed(() => {
+  if (!jwtInput.value) return ''
+  try {
+    const p = jwtInput.value.split('.')[1]
+    return JSON.stringify(JSON.parse(atob(p)), null, 2)
+  } catch(e) { return 'Invalid Payload' }
+})
+
+// --- Encode / Decode ---
+const encodeInput = ref('')
+const encodeOutput = ref('')
+const encodeBase64 = () => { try { encodeOutput.value = btoa(encodeInput.value) } catch(e){ encodeOutput.value = 'Error' } }
+const decodeBase64 = () => { try { encodeOutput.value = atob(encodeInput.value) } catch(e){ encodeOutput.value = 'Error' } }
+const encodeUrl = () => { try { encodeOutput.value = encodeURIComponent(encodeInput.value) } catch(e){ encodeOutput.value = 'Error' } }
+const decodeUrl = () => { try { encodeOutput.value = decodeURIComponent(encodeInput.value) } catch(e){ encodeOutput.value = 'Error' } }
+
+// --- Timestamp Converter ---
+const tsInput = ref('')
+const tsOutput = ref('')
+const convertTimestamp = () => {
+  const val = tsInput.value.trim()
+  if (!val) return
+  if (/^\d+$/.test(val)) {
+    let n = parseInt(val)
+    if (val.length <= 10) n *= 1000
+    tsOutput.value = new Date(n).toLocaleString() + ` (Unix: ${Math.floor(n/1000)})`
+  } else {
+    const d = new Date(val)
+    if (isNaN(d.getTime())) tsOutput.value = 'Invalid Date'
+    else tsOutput.value = `Unix Timestamp (s): ${Math.floor(d.getTime()/1000)}\nMilliseconds: ${d.getTime()}`
+  }
+}
+
+// --- QR Code ---
+const qrInput = ref('')
+
+// --- CSS Shadow ---
+const cssX = ref(10)
+const cssY = ref(10)
+const cssBlur = ref(20)
+const cssSpread = ref(0)
+const cssColor = ref('#000000')
+const computedBoxShadow = computed(() => {
+  return `${cssX.value}px ${cssY.value}px ${cssBlur.value}px ${cssSpread.value}px ${cssColor.value}80`
+})
+
+// --- Regex Tester ---
+const regexPattern = ref('')
+const regexFlags = ref('g')
+const regexInput = ref('')
+const regexResultHtml = computed(() => {
+  if (!regexPattern.value || !regexInput.value) return regexInput.value
+  try {
+    const re = new RegExp(regexPattern.value, regexFlags.value)
+    const str = regexInput.value.replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    if (regexFlags.value.includes('g')) {
+      return str.replace(re, match => `<span style="background: var(--purple); color: #fff; padding: 0 2px; border-radius: 2px;">${match}</span>`)
+    } else {
+      const match = str.match(re)
+      if (match) {
+        return str.substring(0, match.index) + `<span style="background: var(--purple); color: #fff; padding: 0 2px; border-radius: 2px;">${match[0]}</span>` + str.substring(match.index + match[0].length)
+      }
+      return str
+    }
+  } catch(e) {
+    return `<span style="color: var(--red);">Invalid Regex: ${e.message}</span>`
   }
 })
 
@@ -3236,4 +3423,32 @@ onUnmounted(() => {
 
 /* ─── History pane specific ───────────────────────────────────────────────── */
 .history-pane { overflow: hidden; }
+
+/* ─── Tools Sidebar Button ───────────────────────────────────────────────── */
+.tool-nav-btn {
+  -webkit-appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  text-align: left;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.tool-nav-btn:hover {
+  background: var(--bg-2);
+  color: var(--text);
+}
+.tool-nav-btn.active {
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--purple);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
 </style>
