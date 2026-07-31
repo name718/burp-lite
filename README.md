@@ -1,56 +1,68 @@
-# Burp Lite (formerly Chaos Proxy)
+# Chaos DevBox 🚀
 
-Burp Lite is a high-performance, lightweight HTTP/HTTPS proxy and interception tool written in pure C for the proxy engine and Vue.js/Electron for the desktop UI. It brings Burp Suite-like capabilities into a modern, lightning-fast developer experience.
+**Chaos DevBox** 是一款专为前端和全栈开发者打造的 **“All-in-One”** 本地桌面级开发效率神器。
 
-## ✨ Features
+它不仅内置了一个基于 C 语言编写的高性能底层 HTTP/HTTPS 代理引擎，可以通过 GUI 直接进行流量抓包、篡改、API 调试；还深度集成了一整套你每天都会用到的开发者百宝箱（如 JSON 编辑器、JWT 解码、正则测试等），让你彻底告别满地找在线工具、担心数据泄露的痛点。
 
-- **Blazing Fast C Core**: The core proxy is written in C using `select()` based event loops, capable of handling high concurrency with zero garbage collection pauses.
-- **Full HTTPS MITM Support**: Automatically generates Root CA and dynamically signs domain certificates on-the-fly using OpenSSL, enabling transparent interception and decryption of HTTPS traffic.
-- **Burp-like Repeater**: Edit raw HTTP requests and resend them instantly. Automatically recalculates `Content-Length`.
-- **Live Interceptor**: Set rules to pause incoming or outgoing traffic, manually modify the HTTP body/headers in the UI, and forward them seamlessly.
-- **Chaos Engineering**: Built-in latency injection, connection drops, status code overrides, and payload tampering to test the robustness of your microservices.
-- **Modern Electron UI**: Chrome DevTools-inspired interface built with Vue 3, featuring split-pane views, dark mode, and real-time structured logs.
+---
 
-## 🚀 Quick Start
+## 🌟 核心特性 (Features)
 
-### 1. Build the Proxy Core
+### 1. 🌐 超强代理引擎 (Proxy App)
+* **HTTP/HTTPS 抓包 (History)**: 实时捕获你的应用程序发出的网络请求，支持查看 Headers、Payload、Response 详情和格式化视图。
+* **拦截器 (Interceptor)**: 自动断点拦截指定规则的请求/响应，修改参数、状态码或正文后再放行。
+* **混沌规则 (Chaos Rules)**: 支持通过正则或前缀匹配，动态注入错误（如 500、403），模拟高延迟网络环境（如延迟 2000ms），轻松测试前端应用的容错边界。
+* **重发器 (Repeater)**: 捕获到某个请求后，一键发送到重发器，自由修改包体后无限次重放测试。
+* **API 发包器 (API Tester)**: 类似 Postman 的完整界面。可以直接在此构建 GET/POST 请求，**支持一键导入 cURL 命令自动解析**，让你轻松完成接口联调。
 
-Ensure you have a C compiler, `make`, and OpenSSL installed (e.g., `brew install openssl@3` on macOS).
+### 2. 🛠️ 开发者工具箱 (Dev Tools)
+无需打开浏览器，纯本地计算，丝滑安全：
+* **🌲 高级 JSON 美化与编辑器**: 集成业界顶配 `vanilla-jsoneditor`，支持原生快捷键搜索高亮、自动修复格式、Tree 视图展开折叠。
+* **🔐 JWT 解码器**: 一键解析 Base64 编码的 Header 和 Payload。
+* **🔄 编码转换**: 提供 Base64 Encode/Decode 以及 URL Encode/Decode，双边实时互转。
+* **⏰ 时间戳转换**: 一键获取当前 Unix 毫秒时间戳，双向转换日期与时间戳。
+* **📱 二维码生成**: 快速将本地调试 URL 或文字生成二维码，方便真机扫码测试。
+* **🎨 CSS 阴影生成**: 原生滑动条快速调配 Box-Shadow，即时预览并生成代码。
+* **🔠 正则测试器**: 输入正则表达式及标志位，实时高亮匹配目标字符串。
 
-```bash
-make
-```
+### 3. 📦 工作区与端口管理
+* **项目管理 (Projects)**: 智能扫描指定的开发根目录下的所有子项目。一键启动/停止项目的 `npm run dev`，实时查看项目 Console 输出。
+* **端口杀手 (Port Manager)**: 开发时遇到 `Port in use`？在这里一键扫描所有运行中的端口占用情况，支持精准搜索，一键 `Kill` 解放端口。
 
-### 2. Start the Desktop App
+---
 
-Make sure Node.js is installed.
+## 🚀 快速开始 (Quick Start)
 
-```bash
-cd desktop
-npm install
-npm run dev
-```
+### 环境要求
+* **Node.js**: 建议使用 `v22` (例如: `nvm use 22`)
+* **包管理器**: `pnpm`
+* **操作系统**: macOS (推荐)
 
-### 3. Trust the Root CA (For HTTPS Interception)
+### 安装与运行
 
-Once started, the proxy generates a Root CA in `/tmp/chaos_ca/ca.crt`. To intercept HTTPS traffic, you must trust this certificate on your system.
+1. **克隆项目并安装依赖**
+   ```bash
+   # 在项目根目录
+   pnpm install
+   ```
 
-**macOS (UI Method):**
-1. Press `Cmd + Shift + G` in Finder and go to `/tmp/chaos_ca/`.
-2. Double-click `ca.crt` to open Keychain Access.
-3. Find `ChaosProxy Root CA`, double-click it, expand **Trust**, and select **Always Trust**.
+2. **启动 Electron 桌面应用**
+   ```bash
+   pnpm run dev
+   ```
+   > 启动后，桌面应用将自动弹出。你可以在 App 内部一键点击 `▶ Start` 启动 C 代理核心引擎。
 
-**macOS (CLI Method):**
-```bash
-security add-trusted-cert -p ssl -p basic -k ~/Library/Keychains/login.keychain-db /tmp/chaos_ca/ca.crt
-```
+### HTTPS 证书配置 (可选)
+如果需要解密 HTTPS 流量，请在应用中的 **Settings (设置)** 面板点击下载 Root CA 证书（默认保存至桌面）。
+双击导入 macOS 的**钥匙串访问 (Keychain Access)**，找到 `ChaosProxy Root CA`，双击将权限修改为 **“始终信任 (Always Trust)”**。
 
-## 🛠️ Architecture
+---
 
-- **`src/`**: The core C HTTP/HTTPS proxy engine. Uses POSIX sockets, non-blocking I/O, and OpenSSL.
-- **`desktop/`**: The Electron wrapper and Vue 3 frontend. Communicates with the C proxy via efficient file-based IPC and a local REST API.
-- **`docs/`**: Technical design documents and architectural plans.
+## 🏗 技术栈 (Tech Stack)
 
-## 📄 License
+* **底层代理核心**: C 语言架构，原生套接字级别的高并发非阻塞 IO。
+* **GUI 桌面端**: Electron + Vue 3 (Vite 驱动)，丝滑秒开的深色极客风主题 UI。
+* **依赖管理**: pnpm。
 
-MIT License
+## 🤝 贡献与反馈
+如果你觉得某些小工具不顺手，或者有更绝妙的脑洞，欢迎在项目中尽情扩展！Chaos DevBox 的所有模块均为低耦合设计，添加新 Tab 或新组件非常简单。
