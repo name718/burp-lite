@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import { spawn, execSync } from 'child_process'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import { readFileSync, writeFileSync, existsSync, copyFileSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, copyFileSync, readdirSync, statSync } from 'fs'
 import net from 'net'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -333,6 +333,141 @@ ipcMain.handle('tool:getPorts', async () => {
 ipcMain.handle('tool:killPort', async (_event, pid) => {
   try {
     execSync(`kill -9 ${pid}`)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
+// ─── IPC: Project Manager ─────────────────────────────────────────────────────
+const projectProcesses = new Map() // key: projectPath, value: childProcess object
+
+ipcMain.handle('project:selectDir', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory']
+  })
+  if (canceled || filePaths.length === 0) return { ok: false }
+  return { ok: true, path: filePaths[0] }
+})
+
+ipcMain.handle('project:scan', async (_event, rootDir) => {
+  try {
+    if (!existsSync(rootDir)) return { ok: false, msg: 'Directory not found' }
+    
+    const projects = []
+    const items = readdirSync(rootDir)
+    
+    for (const item of items) {
+      if (item === 'node_modules' || item.startsWith('.')) continue
+      
+      const itemPath = join(rootDir, item)
+      if (statSync(itemPath).isDirectory()) {
+        const pkgPath = join(itemPath, 'package.json')
+        if (existsSync(pkgPath)) {
+          try {
+            const pkgData = JSON.parse(readFileSync(pkgPath, 'utf-8'))
+            const scripts = pkgData.scripts || {}
+            // Determine best script
+            let script = null
+            if (scripts.dev) script = 'dev'
+            else if (scripts.serve) script = 'serve'
+            else if (scripts.start) script = 'start'
+            
+            projects.push({
+              name: pkgData.name || item,
+              path: itemPath,
+              script: script,
+              hasScripts: !!script
+            })
+          } catch (e) {
+            // Ignore malformed package.json
+          }
+        }
+      }
+    }
+    return { ok: true, projects }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
+ipcMain.handle('project:start', (_event, projectPath, script) => {
+  if (projectProcesses.has(projectPath)) {
+    return { ok: false, msg: 'Project is already running' }
+  }
+
+  try {
+    // detached: true creates a new process group, so we can kill all subprocesses (vite, node, etc.) easily on mac/linux
+    const child = spawn('npm', ['run', script], {
+      cwd: projectPath,
+      detached: true,
+      stdio: 'pipe'
+    })
+
+    const onData = (data) => {
+      const text = data.toString()
+      mainWindow?.webContents.send('project:log', { path: projectPath, text })
+      
+      // Attempt to extract all local and network URLs
+      const regex = /http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|[\d\.]+):(\d+)(\/[^\s\x1b]*)?/gi
+      const matches = [...text.matchAll(regex)]
+      if (matches.length > 0) {
+        const urls = matches.map(m => m[0])
+        mainWindow?.webContents.send('project:ready', { path: projectPath, urls })
+      }
+    }
+
+    child.stdout.on('data', onData)
+    child.stderr.on('data', onData)
+
+    child.on('close', (code) => {
+      projectProcesses.delete(projectPath)
+      mainWindow?.webContents.send('project:stopped', { path: projectPath, code })
+    })
+    
+    child.on('error', (err) => {
+      projectProcesses.delete(projectPath)
+      mainWindow?.webContents.send('project:stopped', { path: projectPath, error: err.message })
+    })
+
+    projectProcesses.set(projectPath, child)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
+ipcMain.handle('project:stop', (_event, projectPath) => {
+  const child = projectProcesses.get(projectPath)
+  if (!child) return { ok: false, msg: 'Process not found' }
+  
+  try {
+    // Kill the process group to ensure child processes (like Vite/Webpack) are also terminated
+    if (child.pid) {
+      process.kill(-child.pid) 
+    }
+    projectProcesses.delete(projectPath)
+    return { ok: true }
+  } catch (err) {
+    // If it fails (e.g. ESRCH), just clean up
+    projectProcesses.delete(projectPath)
+    return { ok: false, msg: err.message }
+  }
+})
+
+ipcMain.handle('project:openEditor', async (_event, projectPath, editor) => {
+  try {
+    // editor can be 'code' or 'zed'
+    execSync(`${editor} "${projectPath}"`)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, msg: err.message }
+  }
+})
+
+ipcMain.handle('project:openBrowser', async (_event, url) => {
+  try {
+    execSync(`open -a "Google Chrome" "${url}"`)
     return { ok: true }
   } catch (err) {
     return { ok: false, msg: err.message }

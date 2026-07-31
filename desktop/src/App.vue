@@ -29,9 +29,9 @@
           <span class="icon">🔌</span>
           <span class="label">Ports</span>
         </button>
-        <button class="sidebar-btn" :class="{active: currentApp === 'tools'}" @click="currentApp = 'tools'" title="其他工具 (Dev Tools)">
-          <span class="icon">🛠️</span>
-          <span class="label">Tools</span>
+        <button class="sidebar-btn" :class="{active: currentApp === 'projects'}" @click="currentApp = 'projects'" title="项目管理 (Project Launcher)">
+          <span class="icon">📦</span>
+          <span class="label">Projects</span>
         </button>
       </aside>
 
@@ -632,11 +632,88 @@
       </div>
     </div>
 
-    <!-- ======================= Other Tools App (占位) ======================= -->
-    <div class="sub-app placeholder-app" v-show="currentApp === 'tools'">
-      <div class="placeholder-content">
-        <h2>🛠️ 开发者小工具 (Dev Tools)</h2>
-        <p>JSON 格式化、JWT 解析、时间戳转换等 (即将上线...)</p>
+    <!-- ======================= Project Launcher App ======================= -->
+    <div class="sub-app project-app" v-show="currentApp === 'projects'">
+      <div class="pane-toolbar" style="padding: 12px 20px; gap: 16px;">
+        <h2 style="margin: 0; font-size: 16px; color: #fff;">📦 项目管理 (Projects)</h2>
+        <div style="flex: 1"></div>
+        <div class="path-display" v-if="projectRootDir" style="color: var(--text-muted); font-size: 12px; max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :title="projectRootDir">
+          {{ projectRootDir }}
+        </div>
+        <button class="toolbar-btn" style="background: var(--bg-3);" @click="selectProjectDir">
+          📁 切换根目录
+        </button>
+        <button class="toolbar-btn" style="background: var(--purple); color: white; border: none; padding: 6px 12px;" @click="scanProjects" :disabled="!projectRootDir || projectsLoading">
+          {{ projectsLoading ? '🔄 扫描中...' : '🔄 重新扫描' }}
+        </button>
+      </div>
+      
+      <div style="flex: 1; overflow-y: auto; padding: 20px;">
+        <div v-if="!projectRootDir" class="empty-row" style="margin-top: 100px;">
+          <div style="font-size: 48px; margin-bottom: 20px;">📁</div>
+          <div style="font-size: 16px; color: #fff; margin-bottom: 10px;">未设置前端项目根目录</div>
+          <div style="margin-bottom: 20px;">选择包含你所有项目的文件夹 (例如 ~/Desktop/projects)</div>
+          <button class="toolbar-btn" style="background: var(--purple); color: white; padding: 8px 16px; font-size: 14px;" @click="selectProjectDir">选择文件夹</button>
+        </div>
+        
+        <div v-else-if="projectsList.length === 0" class="empty-row" style="margin-top: 100px;">
+          该目录下没有找到包含 package.json 的前端项目。
+        </div>
+        
+        <div v-else class="project-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px;">
+          <div v-for="proj in projectsList" :key="proj.path" class="project-card" style="background: var(--bg-1); border: 1px solid var(--border); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; transition: all 0.2s;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+              <h3 style="margin: 0; font-size: 15px; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" :title="proj.name">{{ proj.name }}</h3>
+              <div class="status-indicator" style="display: flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05);">
+                <span class="status-dot" :style="{ background: projectStatuses[proj.path] ? 'var(--green)' : 'var(--text-muted)' }" style="width: 6px; height: 6px; border-radius: 50%; display: inline-block;"></span>
+                <span :style="{ color: projectStatuses[proj.path] ? 'var(--green)' : 'var(--text-muted)' }">{{ projectStatuses[proj.path] ? '运行中' : '已停止' }}</span>
+              </div>
+            </div>
+            
+            <div style="color: var(--text-muted); font-size: 11px; margin-bottom: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" :title="proj.path">
+              📁 {{ getPathName(proj.path) }}
+            </div>
+            
+            <div style="margin-top: auto; display: flex; gap: 8px;">
+              <button v-if="!projectStatuses[proj.path]" class="toolbar-btn" style="flex: 1; padding: 6px; font-size: 12px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: var(--green);" @click="startProject(proj)" :disabled="!proj.hasScripts">
+                ▶ Start {{ proj.script ? `(${proj.script})` : '' }}
+              </button>
+              <button v-else class="toolbar-btn" style="flex: 1; padding: 6px; font-size: 12px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: var(--red);" @click="stopProject(proj)">
+                ⏹ Stop
+              </button>
+            </div>
+            
+            <div v-if="projectStatuses[proj.path]" style="margin-top: 12px; background: rgba(0,0,0,0.2); border-radius: 6px; padding: 12px; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 60px;">
+              <template v-if="projectUrls[proj.path] && projectUrls[proj.path].length > 0">
+                <div style="color: var(--green); margin-bottom: 8px; font-size: 12px;">🚀 启动成功</div>
+                <div style="display: flex; flex-direction: column; gap: 6px; align-items: stretch; width: 100%;">
+                  <div v-for="url in projectUrls[proj.path]" :key="url" style="display: flex; gap: 4px; align-items: center; justify-content: space-between; background: rgba(0,0,0,0.3); padding: 6px 8px; border-radius: 4px;">
+                    <a :href="url" @click.prevent="openUrl(url)" style="color: #60a5fa; text-decoration: none; font-weight: bold; font-size: 13px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ url }}</a>
+                    <div style="display: flex; gap: 4px; flex-shrink: 0;">
+                      <button class="toolbar-btn" style="padding: 2px 6px; font-size: 11px; background: rgba(255,255,255,0.1);" @click="copyUrl(url)" title="复制链接">📋</button>
+                      <button class="toolbar-btn" style="padding: 2px 6px; font-size: 11px; background: rgba(255,255,255,0.1);" @click="openInChrome(url)" title="在 Google Chrome 中打开">🌍</button>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <template v-else-if="projectStatuses[proj.path] === 'failed'">
+                <div style="color: var(--red); font-size: 13px;">❌ 启动失败</div>
+              </template>
+              <template v-else>
+                <div style="color: var(--text-muted); font-size: 13px;">🔄 启动中...</div>
+              </template>
+            </div>
+            
+            <div style="margin-top: 12px; display: flex; gap: 8px;">
+              <button class="toolbar-btn" style="flex: 1; background: rgba(255,255,255,0.05); padding: 4px; font-size: 12px;" @click="openEditor(proj.path, 'code')" title="使用 VSCode 打开">
+                <span style="color: #3b82f6;">VSCode</span>
+              </button>
+              <button class="toolbar-btn" style="flex: 1; background: rgba(255,255,255,0.05); padding: 4px; font-size: 12px;" @click="openEditor(proj.path, 'zed')" title="使用 Zed 打开">
+                <span style="color: #10b981;">Zed</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -688,6 +765,15 @@ const api = isElectron ? window.electronAPI : {
   // Tool handlers fallback
   getPorts: async () => ({ ok: true, ports: [] }),
   killPort: async () => ({ ok: true }),
+  selectProjectDir: async () => ({ ok: false }),
+  scanProjects: async () => ({ ok: true, projects: [] }),
+  startProject: async () => ({ ok: true }),
+  stopProject: async () => ({ ok: true }),
+  openEditor: async () => ({ ok: true }),
+  openChrome: async () => ({ ok: true }),
+  onProjectLog: () => {},
+  onProjectReady: () => {},
+  onProjectStopped: () => {}
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -763,8 +849,92 @@ const killPort = async (pid, port) => {
 watch(currentApp, (newVal) => {
   if (newVal === 'ports' && portsList.value.length === 0) {
     loadPorts()
+  } else if (newVal === 'projects' && projectsList.value.length === 0 && projectRootDir.value) {
+    scanProjects()
   }
 })
+
+// Project Launcher
+const projectRootDir = ref(localStorage.getItem('projectRootDir') || '')
+const projectsList = ref([])
+const projectStatuses = ref({}) // path -> boolean | 'failed'
+const projectUrls = ref({})     // path -> string[]
+const projectsLoading = ref(false)
+
+const selectProjectDir = async () => {
+  const res = await api.selectProjectDir()
+  if (res.ok && res.path) {
+    projectRootDir.value = res.path
+    localStorage.setItem('projectRootDir', res.path)
+    scanProjects()
+  }
+}
+
+const scanProjects = async () => {
+  if (!projectRootDir.value) return
+  projectsLoading.value = true
+  try {
+    const res = await api.scanProjects(projectRootDir.value)
+    if (res.ok) {
+      projectsList.value = res.projects
+    } else {
+      showToast('扫描失败: ' + res.msg, 'error')
+    }
+  } catch (err) {
+    showToast('发生错误', 'error')
+  } finally {
+    projectsLoading.value = false
+  }
+}
+
+const startProject = async (proj) => {
+  projectUrls.value[proj.path] = []
+  const res = await api.startProject(proj.path, proj.script)
+  if (res.ok) {
+    projectStatuses.value[proj.path] = true
+    showToast(`项目 ${proj.name} 启动中...`, 'success')
+  } else {
+    showToast('启动失败: ' + res.msg, 'error')
+  }
+}
+
+const stopProject = async (proj) => {
+  const res = await api.stopProject(proj.path)
+  if (res.ok) {
+    projectStatuses.value[proj.path] = false
+    projectUrls.value[proj.path] = []
+    showToast(`已发出停止指令`, 'success')
+  } else {
+    showToast('停止失败: ' + res.msg, 'error')
+  }
+}
+
+const openEditor = async (path, editor) => {
+  const res = await api.openEditor(path, editor)
+  if (!res.ok) {
+    showToast(`无法打开 ${editor}: ` + res.msg, 'error')
+  }
+}
+
+const openUrl = (url) => {
+  // In a real app we would use shell.openExternal, but here we can just create an anchor
+  const a = document.createElement('a')
+  a.href = url
+  a.target = '_blank'
+  a.click()
+}
+
+const copyUrl = (url) => {
+  navigator.clipboard.writeText(url)
+  showToast('已复制到剪贴板', 'success')
+}
+
+const openInChrome = async (url) => {
+  const res = await api.openChrome(url)
+  if (!res.ok) {
+    showToast('无法打开 Chrome: ' + res.msg, 'error')
+  }
+}
 
 // Interceptor
 const interceptedItems= ref([])
@@ -1079,6 +1249,61 @@ async function saveCurrentRule() {
   isNewRule.value = false
   showToast('规则已保存', 'success')
 }
+
+onMounted(async () => {
+  api.onLogLine((line) => {
+    logLines.value.push(line)
+    if (logLines.value.length > 500) logLines.value.shift()
+    nextTick(() => {
+      if (logBodyEl.value) {
+        logBodyEl.value.scrollTop = logBodyEl.value.scrollHeight
+      }
+    })
+  })
+
+  api.onProjectStopped((data) => {
+    if (data && data.path) {
+      projectUrls.value[data.path] = []
+      if (data.error || (data.code !== 0 && data.code !== null)) {
+        projectStatuses.value[data.path] = 'failed'
+        showToast(`项目启动失败或异常退出`, 'error')
+      } else {
+        projectStatuses.value[data.path] = false
+      }
+    }
+  })
+
+  api.onProjectReady((data) => {
+    if (data && data.path && data.urls) {
+      if (!projectUrls.value[data.path]) projectUrls.value[data.path] = []
+      data.urls.forEach(url => {
+        if (!projectUrls.value[data.path].includes(url)) {
+          projectUrls.value[data.path].push(url)
+        }
+      })
+    }
+  })
+
+  api.onProjectLog((data) => {
+    if (data && data.text) {
+      const lines = data.text.split('\n').filter(Boolean)
+      
+      // Add to global console
+      lines.forEach(l => {
+        logLines.value.push(`[${getPathName(data.path)}] ${l}`)
+      })
+      if (logLines.value.length > 500) logLines.value.shift()
+      
+      nextTick(() => {
+        if (logBodyEl.value) {
+          logBodyEl.value.scrollTop = logBodyEl.value.scrollHeight
+        }
+      })
+    }
+  })
+
+  // 加载初始状态
+})
 
 async function deleteCurrentRule() {
   if (!editingRule.value) return

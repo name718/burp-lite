@@ -33,6 +33,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPorts: () => ipcRenderer.invoke('tool:getPorts'),
   killPort: (pid) => ipcRenderer.invoke('tool:killPort', pid),
 
+  // ── Projects ───────────────────────────────────────────────────────────────
+  selectProjectDir: () => ipcRenderer.invoke('project:selectDir'),
+  scanProjects: (dir) => ipcRenderer.invoke('project:scan', dir),
+  startProject: (path, script) => ipcRenderer.invoke('project:start', path, script),
+  stopProject: (path) => ipcRenderer.invoke('project:stop', path),
+  openEditor: (path, editor) => ipcRenderer.invoke('project:openEditor', path, editor),
+  openChrome: (url) => ipcRenderer.invoke('project:openBrowser', url),
+  onProjectLog: (cb) => {
+    ipcRenderer.on('project:log', (_event, data) => cb(data))
+  },
+  onProjectReady: (cb) => {
+    ipcRenderer.on('project:ready', (_event, data) => cb(data))
+  },
+  onProjectStopped: (cb) => {
+    ipcRenderer.on('project:stopped', (_event, data) => cb(data))
+  },
+
   // ── Events (main → renderer) ───────────────────────────────────────────────
   onLogLine: (cb) => {
     ipcRenderer.on('log:line', (_event, line) => cb(line))
